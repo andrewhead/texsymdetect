@@ -5,7 +5,7 @@ import random
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -313,9 +313,19 @@ def _contains_start_graphic(image: np.array) -> bool:
     return num_blue_pixels / float(num_pixels) > 0.5
 
 
+@dataclass
+class LocatedEntity:
+    left: int
+    top: int
+    width: int
+    height: int
+    page: int
+    key: str
+
+
 def save_debug_images(
     page_images: Dict[PageNumber, np.array],
-    instances: Dict[PageNumber, List[Union[SymbolInstance, TokenInstance]]],
+    located_objects: Iterable[LocatedEntity],
     output_dir: Path,
 ) -> None:
 
@@ -325,25 +335,27 @@ def save_debug_images(
     entity_colors: Dict[str, Tuple[int, int, int]] = {}
     for page_no, page_image in page_images.items():
 
-        page_instances = instances[page_no]
         annotated_image = np.copy(page_image)
 
-        for instance in page_instances:
-            mathml = instance.id_.mathml
+        for object in located_objects:
+            if not object.page == page_no:
+                continue
+
+            key = object.key
 
             # Use a consistent (yet initially randomly-chosen) color for each entity detected.
-            if mathml not in entity_colors:
-                entity_colors[mathml] = (
+            if key not in entity_colors:
+                entity_colors[key] = (
                     random.randint(0, 256),
                     random.randint(0, 256),
                     random.randint(0, 256),
                 )
-            color = entity_colors[mathml]
+            color = entity_colors[key]
 
-            x = instance.location.left
-            y = instance.location.top
-            width = instance.location.width
-            height = instance.location.height
+            x = object.left
+            y = object.top
+            width = object.width
+            height = object.height
             cv2.rectangle(
                 annotated_image, (x, y), (x + width, y + height), color, 1,
             )

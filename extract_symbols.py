@@ -4,13 +4,15 @@ import os.path
 import shutil
 import tempfile
 from argparse import ArgumentParser
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Set
+from typing import Dict, List, Optional, Set
 
 from texcompile.client import compile
 from typing_extensions import Literal
 
 from lib.image_processing import (
+    LocatedEntity,
     detect_symbols,
     detect_tokens,
     extract_templates,
@@ -27,6 +29,7 @@ from lib.parse_formula_tex import (
 from lib.parse_mathml import parse_formula
 from lib.parse_tex import FormulaExtractor
 from lib.raster_document import raster_pages
+from lib.symbol_search import Rectangle
 
 logger = logging.getLogger("symboldetector")
 
@@ -70,6 +73,33 @@ def extract_formulas(sources_dir: Path) -> Set[Formula]:
 
 class TexCompilationException(Exception):
     pass
+
+
+@dataclass
+class Location:
+    left: int
+    top: int
+    width: int
+    height: int
+    page: int
+
+
+@dataclass
+class Symbol:
+    id_: int
+    mathml: str
+    tex: str
+    location: Location
+    parent: Optional[int]
+
+
+def contains(outer: Rectangle, inner: Rectangle) -> bool:
+    return (
+        outer.left <= inner.left
+        and ((outer.left + outer.width) >= (inner.left + inner.width))
+        and outer.top <= inner.top
+        and ((outer.top + outer.height) >= (inner.top + inner.height))
+    )
 
 
 if __name__ == "__main__":
@@ -133,13 +163,25 @@ if __name__ == "__main__":
         # Extract all symbols and tokens for all formulas.
         all_symbols: Set[TexSymbol] = set()
         all_tokens: Set[TexToken] = set()
+        mathml_parents: Dict[MathMl, Set[MathMl]] = defaultdict(set)
+        mathml_texs: Dict[MathMl, Formula] = {}
+
         for (formula, mathml) in formula_mathmls.items():
             if mathml is not None:
                 nodes = parse_formula(mathml)
                 for node in nodes:
-                    symbol = create_symbol_from_node(node, formula)
-                    all_symbols.add(symbol)
-                    all_tokens.update(symbol.tokens)
+                    instance = create_symbol_from_node(node, formula)
+                    mathml_texs[node.element] = instance.tex
+
+                    # Save all unique symbols and tokens.
+                    all_symbols.add(instance)
+                    all_tokens.update(instance.tokens)
+
+                    # Make a lookup table that answers whether one MathML element can have
+                    # another MathML element as a parent. This table will be used later
+                    # to determine parent-child relationships between detected symbols.
+                    for child in node.children:
+                        mathml_parents[child.element].add(node.element)
 
         # Filter to only valid symbols and tokens.
         valid_formulas = filter_valid_formulas(
@@ -214,18 +256,82 @@ if __name__ == "__main__":
         token_locations = detect_tokens(original_page_images, token_images)
         symbol_locations = detect_symbols(token_locations, symbol_templates)
 
+        # Clean up symbol data:
+        # 1. Associate symbols with their parents.
+        # 2. Remove incorrectly detected symbols when possible.
+        symbols: List[Symbol] = []
+        symbol_id = 0
+
+        for page_no, page_symbol_instances in symbol_locations.items():
+
+            page_symbols: List[Symbol] = []
+            largest_to_smallest = sorted(
+                page_symbol_instances, key=lambda si: si.location.width, reverse=True
+            )
+            for instance in largest_to_smallest:
+                loc = instance.location
+                contained_by = [s for s in page_symbols if contains(s.location, loc)]
+                valid_parents = [
+                    s
+                    for s in contained_by
+                    if s.mathml in mathml_parents[instance.id_.mathml]
+                ]
+                # Skip symbols that appear inside larger symbols, but which are not expected
+                # to appear within those larger symbols based on known parent-child relationships.
+                if contained_by and not valid_parents:
+                    continue
+
+                # The parent is the smallest candidate parent symbol that contains this symbol.
+                parent: Optional[int] = None
+                if valid_parents:
+                    valid_parents.sort(key=lambda s: s.location.width)
+                    parent = valid_parents[0].id_
+
+                page_symbols.append(
+                    Symbol(
+                        id_=symbol_id,
+                        mathml=instance.id_.mathml,
+                        tex=mathml_texs[instance.id_.mathml],
+                        location=Location(
+                            loc.left, loc.top, loc.width, loc.height, page_no,
+                        ),
+                        parent=parent,
+                    )
+                )
+                symbol_id += 1
+
+            symbols.extend(page_symbols)
+
         if args.debug_output_dir:
             token_debug_dir = os.path.join(args.debug_output_dir, "pages-with-tokens")
-            token_instances = {
-                page_no: token_index.get_instances()
+            detected_tokens = [
+                LocatedEntity(
+                    t.location.left,
+                    t.location.top,
+                    t.location.width,
+                    t.location.height,
+                    page_no,
+                    t.id_.mathml,
+                )
                 for (page_no, token_index) in token_locations.items()
-            }
-            save_debug_images(original_page_images, token_instances, token_debug_dir)
+                for t in token_index.get_instances()
+            ]
+            save_debug_images(original_page_images, detected_tokens, token_debug_dir)
 
             symbol_debug_dir = os.path.join(args.debug_output_dir, "pages-with-symbols")
-            save_debug_images(original_page_images, symbol_locations, symbol_debug_dir)
+            detected_symbols = [
+                LocatedEntity(
+                    s.location.left,
+                    s.location.top,
+                    s.location.width,
+                    s.location.height,
+                    s.location.page,
+                    s.mathml,
+                )
+                for s in symbols
+            ]
+            save_debug_images(original_page_images, detected_symbols, symbol_debug_dir)
 
-    # TODO(andrewhead): Relate symbols to each other (find which ones are children of others)
     # TODO(andrewhead): Find out why symbols do not appear in algorithm listings.
     # TODO(andrewhead): Find out why some functions are not getting detected.
     # TODO(andrewhead): 'd' and 'm' probably need to be shifted by vertical pixels slightly
