@@ -100,6 +100,6 @@ def create_symbol_from_node(node: Node, formula: str) -> TexSymbol:
             ),
         )
     symbol = TexSymbol(
-        formula[node.start : node.end], mathml=node.element, tokens=tex_tokens
+        formula[node.start : node.end], mathml=str(node.element), tokens=tex_tokens
     )
     return symbol

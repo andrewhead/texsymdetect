@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import os.path
@@ -6,7 +7,7 @@ import tempfile
 from argparse import ArgumentParser
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from texcompile.client import compile
 from typing_extensions import Literal
@@ -171,7 +172,7 @@ if __name__ == "__main__":
                 nodes = parse_formula(mathml)
                 for node in nodes:
                     instance = create_symbol_from_node(node, formula)
-                    mathml_texs[node.element] = instance.tex
+                    mathml_texs[str(node.element)] = instance.tex
 
                     # Save all unique symbols and tokens.
                     all_symbols.add(instance)
@@ -181,7 +182,7 @@ if __name__ == "__main__":
                     # another MathML element as a parent. This table will be used later
                     # to determine parent-child relationships between detected symbols.
                     for child in node.children:
-                        mathml_parents[child.element].add(node.element)
+                        mathml_parents[str(child.element)].add(str(node.element))
 
         # Filter to only valid symbols and tokens.
         valid_formulas = filter_valid_formulas(
@@ -302,6 +303,7 @@ if __name__ == "__main__":
 
             symbols.extend(page_symbols)
 
+        # Save annotated images of paper for debugging.
         if args.debug_output_dir:
             token_debug_dir = os.path.join(args.debug_output_dir, "pages-with-tokens")
             detected_tokens = [
@@ -332,6 +334,24 @@ if __name__ == "__main__":
             ]
             save_debug_images(original_page_images, detected_symbols, symbol_debug_dir)
 
+    symbols_json: List[Any] = []
+    for symbol in symbols:
+        symbols_json.append(
+            {
+                "id": symbol.id_,
+                "location": {
+                    "left": symbol.location.left,
+                    "top": symbol.location.top,
+                    "width": symbol.location.width,
+                    "height": symbol.location.height,
+                },
+                "tex": symbol.tex,
+                "mathml": symbol.mathml,
+                "parent": symbol.parent,
+            }
+        )
+
+    print(json.dumps(symbols_json, indent=2))
     # TODO(andrewhead): Find out why symbols do not appear in algorithm listings.
     # TODO(andrewhead): Find out why some functions are not getting detected.
     # TODO(andrewhead): 'd' and 'm' probably need to be shifted by vertical pixels slightly
