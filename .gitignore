@@ -1,0 +1,17 @@
+# Dependencies
+venv
+
+# Compilation caches
+__pycache__
+.mypy_cache
+*.pyc
+
+# Text editing artifacts
+.*.sw*
+
+# Other artifacts
+.DS_Store
+
+# Example files
+debug-outputs
+sources
