@@ -4,11 +4,14 @@ import os
 import os.path
 import shutil
 import tempfile
-from argparse import ArgumentParser
 from collections import defaultdict
+from configparser import ConfigParser
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
+import aiofiles
+import uvicorn
+from fastapi import FastAPI, File, UploadFile
 from texcompile.client import compile
 from typing_extensions import Literal
 
@@ -32,7 +35,9 @@ from lib.parse_tex import FormulaExtractor
 from lib.raster_document import raster_pages
 from lib.symbol_search import Rectangle
 
+app = FastAPI()
 logger = logging.getLogger("symboldetector")
+
 
 SymbolType = Literal["token", "symbol"]
 Path = str
@@ -103,44 +108,31 @@ def contains(outer: Rectangle, inner: Rectangle) -> bool:
     )
 
 
-if __name__ == "__main__":
-    parser = ArgumentParser(description=("Detect the positions of symbols."))
-    parser.add_argument(
-        "--sources",
-        required=True,
-        help=(
-            "Directory containing LaTeX sources (should not contain auxiliary / generated "
-            + "files)."
-        ),
-    )
-    parser.add_argument(
-        "--debug-output-dir",
-        help=(
-            "If set, rasters of the paper will be output to this directory, which lets "
-            + "you preview the positions of detected tokens and symbols."
-        ),
-    )
-    parser.add_argument(
-        "--texcompile-host",
-        default="http://127.0.0.1",
-        help="Hostname of service for compiling LaTeX.",
-    )
-    parser.add_argument(
-        "--texcompile-port",
-        default=8000,
-        type=int,
-        help="Port of service for compiling LaTeX.",
-    )
+def extract_symbols(
+    sources: Path,
+    texcompile_host: str,
+    texcompile_port: int,
+    debug_output_dir: Optional[Path] = None,
+) -> List[Any]:
+    """
+    'sources' is a directory containing LaTeX sources (should not contain any files generated
+    by processing or compiling the sources (e.g., '.aux', etc.)).
 
-    args = parser.parse_args()
+    'debug_output_dir', if set, is a directory where the images visualizing the results of
+    token and symbol extraction, overlaid over images of the pages, will be output.
+    """
+    # TODO(andrewhead): Find out why symbols do not appear in algorithm listings.
+    # TODO(andrewhead): Find out why some functions are not getting detected.
+    # TODO(andrewhead): 'd' and 'm' probably need to be shifted by vertical pixels slightly
+    # to be detected; for some reason they are not getting detected.
 
     # Compile the TeX project to get the output PDF from which symbols will be extracted.
     with tempfile.TemporaryDirectory() as temp_dir:
         result = compile(
-            args.sources,
+            sources,
             os.path.join(temp_dir, "outputs"),
-            args.texcompile_host,
-            args.texcompile_port,
+            texcompile_host,
+            texcompile_port,
         )
         if not result.success:
             raise TexCompilationException("Failed to compile TeX sources.", result.log)
@@ -156,7 +148,7 @@ if __name__ == "__main__":
             logging.debug("Compiled file %s.", output.name)
 
         # Extract formulas from TeX sources.
-        formulas = extract_formulas(args.sources)
+        formulas = extract_formulas(sources)
 
         # Convert formulas to MathML representation.
         formula_mathmls = convert_tex_to_mathml(formulas)
@@ -193,7 +185,7 @@ if __name__ == "__main__":
 
         # Add colorized copies of tokens and symbols to the TeX.
         modified_sources_dir = os.path.join(temp_dir, "modified-sources")
-        shutil.copytree(args.sources, modified_sources_dir)
+        shutil.copytree(sources, modified_sources_dir)
 
         if len(main_tex_files) > 1:
             logger.warning(
@@ -204,7 +196,7 @@ if __name__ == "__main__":
 
         main_tex_filename = main_tex_files[-1]
         with open(
-            os.path.join(args.sources, main_tex_filename), errors="backslashescape"
+            os.path.join(sources, main_tex_filename), errors="backslashescape"
         ) as tex_file:
             tex = tex_file.read()
 
@@ -223,8 +215,8 @@ if __name__ == "__main__":
         result = compile(
             modified_sources_dir,
             modified_outputs_dir,
-            args.texcompile_host,
-            args.texcompile_port,
+            texcompile_host,
+            texcompile_port,
         )
         if not result.success:
             raise TexCompilationException(
@@ -304,8 +296,8 @@ if __name__ == "__main__":
             symbols.extend(page_symbols)
 
         # Save annotated images of paper for debugging.
-        if args.debug_output_dir:
-            token_debug_dir = os.path.join(args.debug_output_dir, "pages-with-tokens")
+        if debug_output_dir:
+            token_debug_dir = os.path.join(debug_output_dir, "pages-with-tokens")
             detected_tokens = [
                 LocatedEntity(
                     t.location.left,
@@ -320,7 +312,7 @@ if __name__ == "__main__":
             ]
             save_debug_images(original_page_images, detected_tokens, token_debug_dir)
 
-            symbol_debug_dir = os.path.join(args.debug_output_dir, "pages-with-symbols")
+            symbol_debug_dir = os.path.join(debug_output_dir, "pages-with-symbols")
             detected_symbols = [
                 LocatedEntity(
                     s.location.left,
@@ -351,8 +343,28 @@ if __name__ == "__main__":
             }
         )
 
-    print(json.dumps(symbols_json, indent=2))
-    # TODO(andrewhead): Find out why symbols do not appear in algorithm listings.
-    # TODO(andrewhead): Find out why some functions are not getting detected.
-    # TODO(andrewhead): 'd' and 'm' probably need to be shifted by vertical pixels slightly
-    # to be detected; for some reason they are not getting detected.
+    return symbols_json
+
+
+@app.post("/")
+async def detect_upload_file(sources: UploadFile = File(...)):
+
+    config = ConfigParser()
+    config.read("config.ini")
+    texcompile_host = config["texcompile"]["host"]
+    texcompile_port = int(config["texcompile"]["port"])
+
+    with tempfile.TemporaryDirectory() as tempdir:
+        sources_filename = os.path.join(tempdir, "sources")
+        async with aiofiles.open(sources_filename, "wb") as sources_file:
+            content = await sources.read()  # async read
+            await sources_file.write(content)  # async write
+
+        json_result = extract_symbols(
+            sources_filename, texcompile_host, texcompile_port
+        )
+        return json_result
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
