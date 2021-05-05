@@ -336,6 +336,7 @@ def extract_symbols(
                     "top": symbol.location.top,
                     "width": symbol.location.width,
                     "height": symbol.location.height,
+                    "page": symbol.location.page,
                 },
                 "tex": symbol.tex,
                 "mathml": symbol.mathml,
