@@ -1,0 +1,7 @@
+Dockerfile
+node/node_modules
+node/KaTeX
+.vscode
+venv
+sources
+__pycache__

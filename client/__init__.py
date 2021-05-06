@@ -87,6 +87,7 @@ def extract_symbols(
 
     # Resolve parents of symbols.
     for id_, symbol in symbols.items():
-        symbol.parent = symbols[parents[id_]]
+        if parents[id_]:
+            symbol.parent = symbols[parents[id_]]
 
-    return list(symbols.values())
+    return [s for s in symbols.values()]

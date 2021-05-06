@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import os.path
@@ -34,6 +33,7 @@ from lib.parse_mathml import parse_formula
 from lib.parse_tex import FormulaExtractor
 from lib.raster_document import raster_pages
 from lib.symbol_search import Rectangle
+from lib.unpack_tex import unpack_archive
 
 app = FastAPI()
 logger = logging.getLogger("symboldetector")
@@ -361,9 +361,9 @@ async def detect_upload_file(sources: UploadFile = File(...)):
             content = await sources.read()  # async read
             await sources_file.write(content)  # async write
 
-        json_result = extract_symbols(
-            sources_filename, texcompile_host, texcompile_port
-        )
+        unpacked_dir = os.path.join(tempdir, "unpacked_sources")
+        unpack_archive(sources_filename, unpacked_dir)
+        json_result = extract_symbols(unpacked_dir, texcompile_host, texcompile_port)
         return json_result
 
 

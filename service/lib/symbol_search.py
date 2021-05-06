@@ -202,6 +202,8 @@ class TokenIndex:
             )
             for t in tokens
         ]
+        if not tokens:
+            token_centers = np.empty(shape=(0, 2))
         self._tree = scipy.spatial.KDTree(token_centers)
 
     def get_instances(self, id_: Id = None) -> List[TokenInstance]:
