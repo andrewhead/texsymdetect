@@ -62,20 +62,17 @@ Inspect the detected symbols:
 print(symbols)
 ```
 
-The output will look sort of like this.
+The output will look like this:
 
 ```python
-{
-    "id": 1,
-    "bounding_boxes": [
-        {"left": ..., "top": ..., "width": ..., "height": ...},
-        ...
-    ],
-    "tex": "\mathbf{x}",
-    "mathml": "<mi mathvariant='bold'>x</mi>",
-    "parent": 2
-}
+[Symbol(id_=0, mathml='<mi>max</mi>', tex='max', location=Location(left=850, top=741, width=39, height=9, page=1), parent=None),
+ Symbol(id_=1, mathml='<msub><mi>h</mi><mi>θ</mi></msub>', tex='h_\\theta', location=Location(left=1021, top=661, width=18, height=17, page=1), parent=None),
+ Symbol(id_=2, mathml='<msub><mi>h</mi><mi>θ</mi></msub>', tex='h_\\theta', location=Location(left=771, top=736, width=18, height=17, page=1), parent=None),
+ Symbol(id_=3, mathml='<msub><mi>h</mi><mi>θ</mi></msub>', tex='h_\\theta', location=Location(left=908, top=1438, width=18, height=17, page=1), parent=None),
+ ...
 ```
+
+Each symbol can have one parent---i.e., another symbol that contains it. For instance, in the TeX symbol `x_i`, both `x` and `i` will have the parent symbol `x_i`.
 
 ## License
 
