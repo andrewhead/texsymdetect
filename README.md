@@ -11,6 +11,7 @@ First, get and run the TeX compilation service following the instructions in
 Then, build the Docker container for the service.
 
 ```bash
+cd texsymdetect/service
 docker build -t symbol-detection-service .
 ```
 
