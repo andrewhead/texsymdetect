@@ -36,7 +36,7 @@ from lib.symbol_search import Rectangle
 from lib.unpack_tex import unpack_archive
 
 app = FastAPI()
-logger = logging.getLogger("symboldetector")
+logger = logging.getLogger("texsymdetect")
 
 
 SymbolType = Literal["token", "symbol"]

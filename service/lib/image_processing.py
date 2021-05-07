@@ -12,12 +12,19 @@ import numpy as np
 
 from lib.instrument_tex import Detectable, FontSize
 from lib.parse_formula_tex import TexSymbol, TexToken
-from lib.symbol_search import (Id, Rectangle, SymbolInstance, SymbolTemplate,
-                               TokenIndex, TokenInstance,
-                               create_bitstring_from_image,
-                               create_symbol_template, find_symbols)
+from lib.symbol_search import (
+    Id,
+    Rectangle,
+    SymbolInstance,
+    SymbolTemplate,
+    TokenIndex,
+    TokenInstance,
+    create_bitstring_from_image,
+    create_symbol_template,
+    find_symbols,
+)
 
-logger = logging.getLogger("symboldetector")
+logger = logging.getLogger("texsymdetect")
 
 Path = str
 MathMl = str

@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 from typing_extensions import Literal
 
-logger = logging.getLogger("symboldetector")
+logger = logging.getLogger("texsymdetect")
 
 Path = str
 PageNumber = int
