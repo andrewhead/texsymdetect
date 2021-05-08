@@ -39,7 +39,7 @@ class Symbol:
     parent: Optional["Symbol"]
 
 
-def extract_symbols(
+def detect_symbols(
     sources_dir: Path, host: str = "http://127.0.0.1", port: int = 8001,
 ) -> List[Symbol]:
 
