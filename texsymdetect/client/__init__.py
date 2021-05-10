@@ -20,10 +20,10 @@ class ServerConnectionException(Exception):
 
 @dataclass
 class Location:
-    left: int
-    top: int
-    width: int
-    height: int
+    left: float
+    top: float
+    width: float
+    height: float
     page: int
 
 
@@ -33,6 +33,7 @@ SymbolId = int
 @dataclass
 class Symbol:
     id_: SymbolId
+    type_: str
     mathml: str
     tex: str
     location: Location
@@ -71,6 +72,7 @@ def detect_symbols(
     for item in data:
         symbol = Symbol(
             id_=item["id"],
+            type_=item["type"],
             mathml=item["mathml"],
             tex=item["tex"],
             location=Location(

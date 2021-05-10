@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from typing_extensions import Literal
 
-from lib.parse_mathml import Node, Token
+from lib.parse_mathml import Node, NodeType, Token
 
 MathMl = str
 Path = str
@@ -24,6 +24,7 @@ class TexToken:
 
 @dataclass(frozen=True)
 class TexSymbol:
+    type_: NodeType
     tex: str
     mathml: str
     tokens: Tuple[TexToken, ...]
@@ -99,7 +100,11 @@ def create_symbol_from_node(node: Node, formula: str) -> TexSymbol:
                 font_macros=token.font_macros,
             ),
         )
+
     symbol = TexSymbol(
-        formula[node.start : node.end], mathml=str(node.element), tokens=tex_tokens
+        node.type_,
+        formula[node.start : node.end],
+        mathml=str(node.element),
+        tokens=tex_tokens,
     )
     return symbol

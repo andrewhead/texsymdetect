@@ -29,7 +29,7 @@ from lib.parse_formula_tex import (
     create_symbol_from_node,
     filter_valid_formulas,
 )
-from lib.parse_mathml import parse_formula
+from lib.parse_mathml import NodeType, parse_formula
 from lib.parse_tex import FormulaExtractor
 from lib.raster_document import raster_pages
 from lib.symbol_search import Rectangle
@@ -93,6 +93,7 @@ class Location:
 @dataclass
 class Symbol:
     id_: int
+    type_: NodeType
     mathml: str
     tex: str
     location: Location
@@ -158,6 +159,7 @@ def extract_symbols(
         all_tokens: Set[TexToken] = set()
         mathml_parents: Dict[MathMl, Set[MathMl]] = defaultdict(set)
         mathml_texs: Dict[MathMl, Formula] = {}
+        mathml_types: Dict[MathMl, NodeType] = {}
 
         for (formula, mathml) in formula_mathmls.items():
             if mathml is not None:
@@ -165,6 +167,7 @@ def extract_symbols(
                 for node in nodes:
                     instance = create_symbol_from_node(node, formula)
                     mathml_texs[str(node.element)] = instance.tex
+                    mathml_types[str(node.element)] = instance.type_
 
                     # Save all unique symbols and tokens.
                     all_symbols.add(instance)
@@ -283,6 +286,7 @@ def extract_symbols(
                 page_symbols.append(
                     Symbol(
                         id_=symbol_id,
+                        type_=mathml_types[instance.id_.mathml],
                         mathml=instance.id_.mathml,
                         tex=mathml_texs[instance.id_.mathml],
                         location=Location(
@@ -328,14 +332,29 @@ def extract_symbols(
 
     symbols_json: List[Any] = []
     for symbol in symbols:
+
+        # Dimensions (left, top, width, height) are expressed as a ratio of the page width (if left
+        # or width) or page height (if top or height) with values between 0 and 1. This way of
+        # expressing coordinates was chosen as a client of this library may wish to convert symbol
+        # positions into pixels in a rendered image of the PDF, or in inches in a PDF document. This
+        # representation allows a client to do either.
+        page_shape = original_page_images[symbol.location.page].shape
+        page_height = page_shape[0]
+        page_width = page_shape[1]
+        left_normalized = symbol.location.left / float(page_width)
+        width_normalized = symbol.location.width / float(page_width)
+        top_normalized = symbol.location.top / float(page_height)
+        height_normalized = symbol.location.height / float(page_height)
+
         symbols_json.append(
             {
                 "id": symbol.id_,
+                "type": symbol.type_,
                 "location": {
-                    "left": symbol.location.left,
-                    "top": symbol.location.top,
-                    "width": symbol.location.width,
-                    "height": symbol.location.height,
+                    "left": left_normalized,
+                    "top": top_normalized,
+                    "width": width_normalized,
+                    "height": height_normalized,
                     "page": symbol.location.page,
                 },
                 "tex": symbol.tex,
