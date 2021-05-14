@@ -136,6 +136,11 @@ def _add_detectable(
     for macro in font_macros:
         entity_tex = f"\\{macro}{{{entity_tex}}}"
 
+    # For accents and other affixes (e.g., '\hat'), affix them to an empty group.
+    if isinstance(entity, TexToken):
+        if entity.type_ == "affix":
+            entity_tex = f"{entity_tex}{{}}"
+
     if size == "normal":
         sized_tex = f"$${entity_tex}$$"
     elif size == "script":

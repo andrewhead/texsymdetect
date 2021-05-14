@@ -2,11 +2,11 @@ aiofiles
 beautifulsoup4==4.8.0
 fastapi[all]
 lxml==4.4.2
-opencv-python-headless==3.4.8.29
 numpy==1.17.4
+opencv-python-headless==3.4.8.29
 requests==2.25.1
 scipy==1.6.1
-git+https://github.com/andrewhead/texcompile@a02b282#texcompile
+git+https://github.com/andrewhead/texcompile@9447eda#texcompile
 
 # Development dependencies
 black==19.10b0

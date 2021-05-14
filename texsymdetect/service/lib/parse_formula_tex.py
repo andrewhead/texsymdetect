@@ -30,10 +30,18 @@ class TexSymbol:
     tokens: Tuple[TexToken, ...]
 
 
-def convert_tex_to_mathml(formulas: Iterable[str]) -> Dict[str, Optional[MathMl]]:
+def convert_tex_to_mathml(
+    formulas: Iterable[str], tolerate_parse_errors: bool = True
+) -> Dict[str, Optional[MathMl]]:
     """
-    Return map from formula TeX to its MathML. If a formula could not be
-    successfully processed by KaTeX, its MathML will be empty (i.e., 'None').
+    Return map from formula TeX to its MathML.
+    
+    If 'tolerate_parse_errors' is False and a formula could not be successfully parsed by KaTeX
+    (for instance, if it includes unknown macros), its MathML will be empty (i.e., 'None').
+    
+    By default, 'tolerate_parse_errors' is True, which means that this method will try to process
+    all valid parts of the TeX while inserting special MathML nodes for the parts of the TeX that
+    cannot be parsed.
     """
 
     formula_data = [{"id": i, "formula": e} for (i, e) in enumerate(formulas)]
@@ -55,6 +63,9 @@ def convert_tex_to_mathml(formulas: Iterable[str]) -> Dict[str, Optional[MathMl]
             "formulas-csv",
             os.path.abspath(csv_path),
         ]
+        if not tolerate_parse_errors:
+            command_args += ["--throw-on-error"]
+
         result = subprocess.run(
             command_args,
             cwd="node",
@@ -79,7 +90,7 @@ def filter_valid_formulas(formulas: Iterable[str]) -> Set[str]:
     Return set of symbols that have been assessed as having valid TeX.
     """
 
-    formula_mathmls = convert_tex_to_mathml(formulas)
+    formula_mathmls = convert_tex_to_mathml(formulas, tolerate_parse_errors=False)
     valid_formulas = [f for (f, m) in formula_mathmls.items() if m is not None]
     return set(valid_formulas)
 
