@@ -253,12 +253,14 @@ def detect_tokens(
                         continue
 
                     # Save appearance of this token.
+                    # If the token has already been found at this location (e.g., if there
+                    # are multiple detectables with the same MathML) only save once.
                     rect = Rectangle(left=x, top=y, width=w, height=h,)
-                    token_instances.append(
-                        TokenInstance(
-                            Id(detectable.entity.mathml, detectable.font_size), rect
-                        )
+                    instance = TokenInstance(
+                        Id(detectable.entity.mathml, detectable.font_size), rect
                     )
+                    if instance not in token_instances:
+                        token_instances.append(instance)
 
         tokens[page_no] = TokenIndex(token_instances)
 
@@ -275,11 +277,13 @@ def detect_symbols(
         logger.debug("Scanning page %d for symbols.", page_no)
         for detectable, template in symbol_templates.items():
             for rect in find_symbols(template, token_index):
-                symbol_instances[page_no].append(
-                    SymbolInstance(
-                        Id(detectable.entity.mathml, detectable.font_size), rect
-                    )
+                instance = SymbolInstance(
+                    Id(detectable.entity.mathml, detectable.font_size), rect
                 )
+                # Deduplicate symbols, in case two symbols are actually the same symbol (as
+                # may happen if two symbols had different TeX, but the same MathML).
+                if instance not in symbol_instances[page_no]:
+                    symbol_instances[page_no].append(instance)
 
     return symbol_instances
 
