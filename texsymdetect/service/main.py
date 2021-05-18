@@ -81,12 +81,8 @@ class TexCompilationException(Exception):
     pass
 
 
-@dataclass
-class Location:
-    left: int
-    top: int
-    width: int
-    height: int
+@dataclass(frozen=True)
+class Location(Rectangle):
     page: int
 
 
@@ -264,13 +260,13 @@ def extract_symbols(
             largest_to_smallest = sorted(
                 page_symbol_instances, key=lambda si: si.location.width, reverse=True
             )
-            for instance in largest_to_smallest:
-                loc = instance.location
+            for symbol_instance in largest_to_smallest:
+                loc = symbol_instance.location
                 contained_by = [s for s in page_symbols if contains(s.location, loc)]
                 valid_parents = [
                     s
                     for s in contained_by
-                    if s.mathml in mathml_parents[instance.id_.mathml]
+                    if s.mathml in mathml_parents[symbol_instance.id_.mathml]
                 ]
                 # Skip symbols that appear inside larger symbols, but which are not expected
                 # to appear within those larger symbols based on known parent-child relationships.
@@ -286,9 +282,9 @@ def extract_symbols(
                 page_symbols.append(
                     Symbol(
                         id_=symbol_id,
-                        type_=mathml_types[instance.id_.mathml],
-                        mathml=instance.id_.mathml,
-                        tex=mathml_texs[instance.id_.mathml],
+                        type_=mathml_types[symbol_instance.id_.mathml],
+                        mathml=symbol_instance.id_.mathml,
+                        tex=mathml_texs[symbol_instance.id_.mathml],
                         location=Location(
                             loc.left, loc.top, loc.width, loc.height, page_no,
                         ),
@@ -387,4 +383,4 @@ async def detect_upload_file(sources: UploadFile = File(...)):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

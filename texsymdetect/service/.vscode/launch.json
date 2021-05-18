@@ -5,11 +5,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Extract symbols",
+      "name": "Run server",
       "type": "python",
       "request": "launch",
-      "module": "extract_symbols",
-      "args": ["--sources", "sources", "--debug-output-dir", "debug-outputs"]
+      "program": "main.py",
+      "console": "integratedTerminal"
     }
   ]
 }

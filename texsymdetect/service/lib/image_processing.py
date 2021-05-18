@@ -83,7 +83,7 @@ def extract_templates(
     token_images_lookup: Dict[MathMl, Dict[FontSize, List[np.array]]] = defaultdict(
         dict
     )
-    symbol_templates: Dict[Detectable, SymbolTemplate] = defaultdict(list)
+    symbol_templates: Dict[Detectable, SymbolTemplate] = {}
 
     token_detectables = filter(lambda d: isinstance(d.entity, TexToken), detectables)
     symbol_detectables = filter(lambda d: isinstance(d.entity, TexSymbol), detectables)
@@ -311,13 +311,16 @@ def find_boxes_with_rgb(
 
 
 def _contains_start_graphic(image: np.array) -> bool:
+    START_MARKER_COLOR = (80, 165, 250)
     num_pixels = image.shape[0] * image.shape[1]
-    num_blue_pixels = len(
+    new_colorized_pixels = len(
         np.where(
-            (image[:, :, 0] == 80) & (image[:, :, 1] == 165) & (image[:, :, 2] == 250)
+            (image[:, :, 0] == START_MARKER_COLOR[0])
+            & (image[:, :, 1] == START_MARKER_COLOR[1])
+            & (image[:, :, 2] == START_MARKER_COLOR[2])
         )[0]
     )
-    return num_blue_pixels / float(num_pixels) > 0.5
+    return new_colorized_pixels / float(num_pixels) > 0.2
 
 
 @dataclass

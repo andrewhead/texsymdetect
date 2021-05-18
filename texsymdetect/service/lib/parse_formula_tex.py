@@ -64,7 +64,7 @@ def convert_tex_to_mathml(
             os.path.abspath(csv_path),
         ]
         if not tolerate_parse_errors:
-            command_args += ["--throw-on-error"]
+            command_args += ["--", "--throw-on-error"]
 
         result = subprocess.run(
             command_args,
@@ -103,9 +103,15 @@ def create_symbol_from_node(node: Node, formula: str) -> TexSymbol:
     """
     tex_tokens: Tuple[TexToken, ...] = ()
     for token in node.tokens:
+
+        tex = formula[token.start : token.end]
+        # For affixes, add a empty group ('{}') to render the token without an argument.
+        if token.type_ == "affix":
+            tex += "{}"
+
         tex_tokens = tex_tokens + (
             TexToken(
-                tex=formula[token.start : token.end],
+                tex=tex,
                 type_=token.type_,
                 mathml=token.mathml,
                 font_macros=token.font_macros,
