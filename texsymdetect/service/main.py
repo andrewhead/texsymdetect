@@ -36,7 +36,10 @@ from lib.symbol_search import Rectangle
 from lib.unpack_tex import unpack_archive
 
 app = FastAPI()
+
+logging.basicConfig(format="%(asctime)s [%(levelname)s]: %(message)s")
 logger = logging.getLogger("texsymdetect")
+logger.setLevel(logging.DEBUG)
 
 
 SymbolType = Literal["token", "symbol"]
@@ -124,6 +127,7 @@ def extract_symbols(
     # to be detected; for some reason they are not getting detected.
 
     # Compile the TeX project to get the output PDF from which symbols will be extracted.
+    logger.debug("Started processing paper.")
     with tempfile.TemporaryDirectory() as temp_dir:
         result = compile(
             sources,
@@ -230,23 +234,34 @@ def extract_symbols(
 
         # Extract templates from compiled, modified PDF.
         modified_output = result.output_files[0]
+        logger.debug("Started rastering modified PDF.")
         modified_page_images = raster_pages(
             os.path.join(temp_dir, "modified-outputs", modified_output.name),
             modified_output.type_,
         )
+        logger.debug("Finished rastering modified PDF.")
+
+        logger.debug("Started extracting templates.")
         token_images, symbol_templates = extract_templates(
             modified_page_images, detectables
         )
+        logger.debug("Finished extracting templates.")
 
         # Detect tokens and symbols in the modified PDF using the extracted templates for
         # tokens and symbols.
         original_output = result.output_files[0]
+        logger.debug("Started rastering original PDF.")
         original_page_images = raster_pages(
             os.path.join(temp_dir, "outputs", original_output.name),
             original_output.type_,
         )
+        logger.debug("Finished rastering original PDF.")
+        logger.debug("Started detecting token locations.")
         token_locations = detect_tokens(original_page_images, token_images)
+        logger.debug("Finished detecting token locations.")
+        logger.debug("Started detecting symbol locations.")
         symbol_locations = detect_symbols(token_locations, symbol_templates)
+        logger.debug("Finished detecting symbol locations.")
 
         # Clean up symbol data:
         # 1. Associate symbols with their parents.
@@ -326,6 +341,7 @@ def extract_symbols(
             ]
             save_debug_images(original_page_images, detected_symbols, symbol_debug_dir)
 
+    logger.debug("Finished processing paper.")
     symbols_json: List[Any] = []
     for symbol in symbols:
 
