@@ -35,7 +35,10 @@ RUN npm run install-katex
 
 # Install custom fork of LaTeXML for expanding macros.
 WORKDIR /sources/perl
-RUN cpan App::cpanminus
+RUN apt-get install -y cpanminus
+RUN apt-get install -y build-essential
+RUN apt-get install -y libxml-libxslt-perl
+RUN cpanm LWP Text::Unidecode Archive::Zip JSON::XS IO::String File::Which XML::LibXSLT XML::LibXML Image::Size
 COPY perl/setup.sh ./
 RUN chmod +x setup.sh
 RUN ./setup.sh
