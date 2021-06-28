@@ -14,6 +14,11 @@ from fastapi import FastAPI, File, UploadFile
 from texcompile.client import compile
 from typing_extensions import Literal
 
+from lib.expand_macros import (
+    MacroDetectionException,
+    apply_expansions,
+    detect_expansions,
+)
 from lib.image_processing import (
     LocatedEntity,
     detect_symbols,
@@ -112,11 +117,16 @@ def extract_symbols(
     sources: Path,
     texcompile_host: str,
     texcompile_port: int,
+    try_expand_macros: bool = True,
     debug_output_dir: Optional[Path] = None,
 ) -> List[Any]:
     """
     'sources' is a directory containing LaTeX sources (should not contain any files generated
     by processing or compiling the sources (e.g., '.aux', etc.)).
+
+    If 'try_expand_macros' is set, this function will try to expand macros for symbols before
+    detecting those symbols. For papers that make heavy use of macros, this should increase
+    the number of symbols that are detected.
 
     'debug_output_dir', if set, is a directory where the images visualizing the results of
     token and symbol extraction, overlaid over images of the pages, will be output.
@@ -148,8 +158,34 @@ def extract_symbols(
         for output in result.output_files:
             logging.debug("Compiled file %s.", output.name)
 
+        # Try to expand macros for formulas before parsing formulas. This makes it possible to
+        # parse the formula into its tokens using an external parser like 'KaTeX,' which has no
+        # knowledge of what macros for symbols are supposed to be expanded to.
+        are_formulas_expanded = False
+        if try_expand_macros:
+            expanded_sources = os.path.join(temp_dir, "expanded-sources")
+            shutil.copytree(sources, expanded_sources)
+
+            # Expand formulas in each
+            are_formulas_expanded = True
+            for main_tex_file in main_tex_files:
+                try:
+                    expansions = detect_expansions(expanded_sources, main_tex_file)
+                    apply_expansions(expansions)
+                except MacroDetectionException:
+                    are_formulas_expanded = False
+                    logger.debug(  # pylint: disable=logging-not-lazy
+                        "Failed to detect macro expansions when compiling file %s. "
+                        + "Macros in formulas will not be expanded.",
+                        main_tex_file,
+                    )
+                    break
+
         # Extract formulas from TeX sources.
-        formulas = extract_formulas(sources)
+        if are_formulas_expanded:
+            formulas = extract_formulas(expanded_sources)
+        else:
+            formulas = extract_formulas(sources)
 
         # Convert formulas to MathML representation.
         formula_mathmls = convert_tex_to_mathml(formulas)
@@ -187,6 +223,10 @@ def extract_symbols(
         valid_tokens = list(filter(lambda s: s.tex in valid_formulas, all_tokens))
 
         # Add colorized copies of tokens and symbols to the TeX.
+        # Note that colorized tokens and symbols are added to the original TeX, and not the
+        # copy of the TeX directory where macros are expanded. It is expected that this might
+        # be more robust, because if any of the macros were expanded improperly (and there
+        # might be thousands of macro usages), the paper might not compile.
         modified_sources_dir = os.path.join(temp_dir, "modified-sources")
         shutil.copytree(sources, modified_sources_dir)
 

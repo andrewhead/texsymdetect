@@ -1,6 +1,31 @@
+import logging
+import os
+import os.path
 import re
+import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
+from tempfile import NamedTemporaryFile
 from typing import Dict, Iterator, List, Match, Optional, Pattern
+
+logger = logging.getLogger("texsymdetect")
+
+
+class MacroDetectionException(Exception):
+    pass
+
+
+class LatexMlMissingException(MacroDetectionException):
+    pass
+
+
+class LatexMlFailureException(MacroDetectionException):
+    pass
+
+
+class InvalidTexFileException(MacroDetectionException):
+    pass
+
 
 AbsolutePath = str
 
@@ -14,6 +39,126 @@ AbsolutePath = str
 CatCode = int
 LETTER = 11
 CONTROL_SEQUENCE = 16
+
+
+@dataclass
+class Expansion:
+    """
+    The output of the method for detecting expansions. Includes all the information that should
+    be needed to replace each appearance of a macro with its expansion---the position of the
+    macro and its arguments, and the text (as bytes) to replace it with.
+    """
+
+    macro_name: bytes
+    " The token containing the macro name (without arguments). Should begin with '\\'. "
+
+    path: str
+    """
+    The path to the file this expansion applies to.
+    """
+
+    start_line: int
+    start_col: int
+    end_line: int
+    end_col: int
+    """
+    'start' and 'end' represent the range of all characters that should be replaced with an
+    expansion. This should include both the control sequence and its arguments:
+    * For a simple macro without arguments, this will be just the control sequence itself
+    (e.g., just '\\X' for macro '\\X' defined as '\\def\\X{X}').
+    * For a macro with arguments, this range will cover both the control sequence and its
+    arguments (e.g., all of '\\c{X}' for the macro '\\c' defined as '\\def\\c#1{\\mathcal{C}}')).
+    For 'start_line' and 'end_line', the first line in a file is 1 (not 0). For 'start_col' and
+    'end_col', the first character on the line is at col 0 (not 1, in contrast to the line number).
+    """
+
+    expansion: bytes
+
+
+def detect_expansions(latex_project_dir: str, main_file_path: str) -> List[Expansion]:
+    """
+    'main_file_path' is expected to be relative to 'latex_project_dir'.
+    """
+
+    # Save paths to the TeX source file in the new directory.
+    tex_path = os.path.join(latex_project_dir, main_file_path)
+    absolute_tex_path = os.path.realpath(os.path.abspath(tex_path))
+
+    # Remove '.tex' extension from the name of the TeX file.
+    tex_name = re.sub(r"\.tex$", "", absolute_tex_path)
+
+    latexml_bin = os.path.join(
+        os.path.abspath(os.path.join("perl", "latexml", "bin", "latexml"))
+    )
+    if not os.path.exists(latexml_bin):
+        raise LatexMlMissingException(
+            "Could not find LaTeXML binary. It will not be possible to expand macros for "
+            + "this paper without it. Has the setup script in the 'perl' directory been run?"
+        )
+
+    # Run LaTeXML on the TeX file to detect macros.
+    with NamedTemporaryFile() as tmp_file:
+        args = [
+            latexml_bin,
+            tex_name,
+            # Silence LaTeXML default output (HTML and log messages) so that only
+            # the custom messages related to macro expansions are output from LaTeXML.
+            "--destination",
+            tmp_file.name,
+            "--quiet",
+        ]
+
+        logger.debug(
+            "Detecting macros and their expansions for file '%s' in directory %s.",
+            tex_name,
+            latex_project_dir,
+        )
+        env = os.environ.copy()
+        env["LATEXML_LOG_EXPANSIONS"] = "true"
+        result = subprocess.run(
+            args,
+            cwd=latex_project_dir,
+            env=env,            
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+    success = False
+    if result.returncode == 0:
+        success = True
+
+    if not success:
+        raise LatexMlFailureException(
+            f"Some error occurred when scanning paper in {latex_project_dir} for macros. However, it is possible "
+            + "that some macros were successfully scanned. Macro analysis will proceed. "
+            + "This may mean that some macros will not be expanded for this paper. Stderr: ",
+            result.stderr,
+        )
+
+    # Determine the set of files in the project that can contain project-specific macros.
+    project_files = []
+    for (dirpath, _, filenames) in os.walk(latex_project_dir):
+        for filename in filenames:
+            __, ext = os.path.splitext(filename)
+            if ext in [".tex", ".sty"]:
+                project_files.append(
+                    os.path.realpath(os.path.abspath(os.path.join(dirpath, filename)))
+                )
+
+    # Extract macro expansions from the LaTeXML log.
+    expansions = detect_expansions_in_latexml_log(
+        result.stdout, used_in=project_files, defined_in=project_files
+    )
+
+    expansions_list = list(expansions)
+    if len(expansions_list) == 0:
+        logger.debug(
+            "No macro expansions were detected in math environments for paper %s",
+            tex_path,
+        )
+
+    return expansions_list
 
 
 @dataclass
@@ -200,36 +345,7 @@ class LogMatch:
     event_name: str
 
 
-@dataclass
-class Expansion:
-    """
-    The output of the method for detecting expansions. Includes all the information that should
-    be needed to replace each appearance of a macro with its expansion---the position of the
-    macro and its arguments, and the text (as bytes) to replace it with.
-    """
-
-    macro_name: bytes
-    " The token containing the macro name (without arguments). Should begin with '\\'. "
-
-    start_line: int
-    start_col: int
-    end_line: int
-    end_col: int
-    """
-    'start' and 'end' represent the range of all characters that should be replaced with an
-    expansion. This should include both the control sequence and its arguments:
-    * For a simple macro without arguments, this will be just the control sequence itself
-    (e.g., just '\\X' for macro '\\X' defined as '\\def\\X{X}').
-    * For a macro with arguments, this range will cover both the control sequence and its
-    arguments (e.g., all of '\\c{X}' for the macro '\\c' defined as '\\def\\c#1{\\mathcal{C}}')).
-    For 'start_line' and 'end_line', the first line in a file is 1 (not 0). For 'start_col' and
-    'end_col', the first character on the line is at col 0 (not 1, in contrast to the line number).
-    """
-
-    expansion: bytes
-
-
-def detect_expansions(
+def detect_expansions_in_latexml_log(
     expansion_log: bytes, used_in: List[AbsolutePath], defined_in: List[AbsolutePath]
 ) -> Iterator[Expansion]:
     """
@@ -276,6 +392,7 @@ class MacroExpansionDetector:
         macros nested within others, or passed as arguments to others.
         """
 
+        self._path: Optional[str]
         self._start_line: Optional[int]
         self._start_col: Optional[int]
         self._end_line: Optional[int]
@@ -309,6 +426,7 @@ class MacroExpansionDetector:
         self._top_level_macro = None
         self._expanding = None
         self._active_macros = {}
+        self._path = None
         self._start_line = None
         self._start_col = None
         self._end_line = None
@@ -427,6 +545,7 @@ class MacroExpansionDetector:
             elif path in self._used_in:
                 expansion = self._make_expansion_from_last_control_sequence()
 
+                self._path = None
                 self._start_line = (
                     self._start_col
                 ) = self._end_line = self._end_col = None
@@ -448,6 +567,7 @@ class MacroExpansionDetector:
 
             # Save the positions of the control sequence. This forms the basis of the
             # character range of the original text that will be replaced with an expansion.
+            self._path = path
             self._start_line = cs_start_line
             self._start_col = cs_start_col
             self._end_line = cs_end_line
@@ -504,6 +624,7 @@ class MacroExpansionDetector:
 
         if (
             not self._top_level_macro.expanded
+            or self._path is None
             or self._start_line is None
             or self._start_col is None
             or self._end_line is None
@@ -513,6 +634,7 @@ class MacroExpansionDetector:
 
         return Expansion(
             macro_name=self._top_level_macro.text,
+            path=self._path,
             start_line=self._start_line,
             start_col=self._start_col,
             end_line=self._end_line,
@@ -521,17 +643,47 @@ class MacroExpansionDetector:
         )
 
 
-def expand_macros(
+def apply_expansions(expansions: List[Expansion]) -> None:
+    """ Destructively apply macro expansions to files they were detected in. """
+
+    # Group expansions by the file they were detected in.
+    expansions_by_file: Dict[AbsolutePath, List[Expansion]] = defaultdict(list)
+    for e in expansions:
+        expansions_by_file[e.path].append(e)
+
+    # Apply expansions to each file.
+    for path, expansions_for_path in expansions_by_file.items():
+        if not os.path.isfile(path):
+            raise InvalidTexFileException(
+                f"TeX file at path {path} is not an actual file (i.e., it might be a "
+                + "link). This file will not be expanded, in case there's something fishy "
+                + "with this directory of sources that could cause files outside of the TeX "
+                + "project to be modified."
+            )
+
+        with open(path, "rb") as tex_file:
+            contents = tex_file.read()
+        expanded = apply_expansions_to_file_contents(
+            contents, expansions_for_path, wrap_expansions_in_groups=True
+        )
+        with open(path, "wb") as tex_file:
+            tex_file.write(expanded)
+
+
+def apply_expansions_to_file_contents(
     contents: bytes,
     expansions: List[Expansion],
     wrap_expansions_in_groups: bool = False,
 ) -> bytes:
     """
-    Apply expansions to the contents of a TeX file. It is recommended that this method
-    is called with 'wrap_expansions_in_groups' set. This will wrap all expansions in
-    curly braces (i.e., '{' and '}', or group delimiters in TeX). The advantage of wrapping
-    in groups is that it averts several potential sources of TeX compilation errors that
-    could arise from expanding macros, including:
+    Apply expansions to the contents of a TeX file. It is assumed that all 'expansions' apply
+    to the file that the 'contents' were derived from. If 'expansions' includes expansions
+    for other files, this function will have unpredictable results.
+    
+    It is recommended that this method is called with 'wrap_expansions_in_groups' set. This
+    will wrap all expansions in curly braces (i.e., '{' and '}', or group delimiters in TeX).
+    The advantage of wrapping in groups is that it averts several potential sources of TeX
+    compilation errors that could arise from expanding macros, including:
     - expanding a macro right after another unexpanded macro such that it then gets
       merged into the macro name before it
       Example: \\unexpandable\\expandstox -> \\unexpandablex

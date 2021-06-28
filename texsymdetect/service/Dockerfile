@@ -33,6 +33,13 @@ RUN npm install -g yarn
 RUN npm run prepare-katex
 RUN npm run install-katex
 
+# Install custom fork of LaTeXML for expanding macros.
+WORKDIR /sources/perl
+RUN cpan App::cpanminus
+COPY perl/setup.sh ./
+RUN chmod +x setup.sh
+RUN ./setup.sh
+
 # Install vim for when we inevitably want to inspect files
 RUN apt-get install -y vim
 

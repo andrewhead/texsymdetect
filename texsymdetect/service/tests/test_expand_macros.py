@@ -1,6 +1,10 @@
 from typing import List
 
-from lib.expand_macros import Expansion, detect_expansions, expand_macros
+from lib.expand_macros import (
+    Expansion,
+    apply_expansions_to_file_contents,
+    detect_expansions_in_latexml_log,
+)
 
 
 def to_bytes(*lines: str) -> bytes:
@@ -22,12 +26,14 @@ def test_detect_simple_macro():
         r"End of expansion (object ID: 1). Current expansion depth: 1. Expansion: x.",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
     assert len(expansions) == 1
-    assert expansions[0] == Expansion(rb"\simpledef", 2, 1, 2, 11, b"x")
+    assert expansions[0] == Expansion(
+        rb"\simpledef", "/path/to/main.tex", 2, 1, 2, 11, b"x"
+    )
 
 
 def test_ignore_macro_defined_in_external_file():
@@ -43,7 +49,7 @@ def test_ignore_macro_defined_in_external_file():
         r"End of expansion (object ID: 1). Current expansion depth: 1. Expansion: x.",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
@@ -65,13 +71,17 @@ def test_detect_multiple_macros():
         r"End of expansion (object ID: 3). Current expansion depth: 1. Expansion: x.",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
     assert len(expansions) == 2
-    assert expansions[0] == Expansion(rb"\simpledef", 2, 1, 2, 11, b"x")
-    assert expansions[1] == Expansion(rb"\simpledef", 3, 1, 3, 11, b"x")
+    assert expansions[0] == Expansion(
+        rb"\simpledef", "/path/to/main.tex", 2, 1, 2, 11, b"x"
+    )
+    assert expansions[1] == Expansion(
+        rb"\simpledef", "/path/to/main.tex", 3, 1, 3, 11, b"x"
+    )
 
 
 def test_detect_macro_containing_style_macro():
@@ -86,13 +96,19 @@ def test_detect_macro_containing_style_macro():
         r"End of expansion (object ID: 1). Current expansion depth: 1. Expansion: \mathbfx.",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
     assert len(expansions) == 1
     assert expansions[0] == Expansion(
-        rb"\defcontainingstylecontrolsequence", 2, 1, 2, 35, rb"\mathbf x"
+        rb"\defcontainingstylecontrolsequence",
+        "/path/to/main.tex",
+        2,
+        1,
+        2,
+        35,
+        rb"\mathbf x",
     )
 
 
@@ -117,12 +133,14 @@ def test_detect_macro_with_arguments():
         r"End of expansion (object ID: 1). Current expansion depth: 1. Expansion: x + y.",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
     assert len(expansions) == 1
-    assert expansions[0] == Expansion(rb"\defwithargs", 2, 1, 2, 19, b"x + y")
+    assert expansions[0] == Expansion(
+        rb"\defwithargs", "/path/to/main.tex", 2, 1, 2, 19, b"x + y"
+    )
 
 
 def test_detect_macro_with_macro_in_expansion():
@@ -143,13 +161,13 @@ def test_detect_macro_with_macro_in_expansion():
         r"End of expansion (object ID: 2). Current expansion depth: 1. Expansion: x.",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
     assert len(expansions) == 1
     assert expansions[0] == Expansion(
-        rb"\defcontainingcontrolsequence", 2, 1, 2, 30, b"x+ y"
+        rb"\defcontainingcontrolsequence", "/path/to/main.tex", 2, 1, 2, 30, b"x+ y"
     )
 
 
@@ -179,12 +197,14 @@ def test_detect_macro_with_macro_in_argument():
         r"End of expansion (object ID: 3). Current expansion depth: 1. Expansion: x.",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
     assert len(expansions) == 1
-    assert expansions[0] == Expansion(rb"\defwithargs", 2, 1, 2, 28, b"x + y")
+    assert expansions[0] == Expansion(
+        rb"\defwithargs", "/path/to/main.tex", 2, 1, 2, 28, b"x + y"
+    )
 
 
 def test_detect_macro_ignore_operator_wrapper():
@@ -210,28 +230,32 @@ def test_detect_macro_ignore_operator_wrapper():
         r"End of expansion (object ID: 4). Current expansion depth: 1. Expansion: \operatorname{op}.        ",
     )
     expansions = list(
-        detect_expansions(
+        detect_expansions_in_latexml_log(
             log, used_in=["/path/to/main.tex"], defined_in=["/path/to/main.tex"]
         )
     )
     assert len(expansions) == 1
-    assert expansions[0] == Expansion(rb"\op", 2, 1, 2, 4, rb"{\operatorname{op}}")
+    assert expansions[0] == Expansion(
+        rb"\op", "/path/to/main.tex", 2, 1, 2, 4, rb"{\operatorname{op}}"
+    )
 
 
 def test_expand_macros():
     tex = to_bytes(r"\def\simpledef{x}", r"$\simpledef$", r"$\simpledef$")
     expansions = [
-        Expansion(rb"\simpledef", 2, 1, 2, 11, b"x"),
-        Expansion(rb"\simpledef", 3, 1, 3, 11, b"x"),
+        Expansion(rb"\simpledef", "/path/to/main.tex", 2, 1, 2, 11, b"x"),
+        Expansion(rb"\simpledef", "/path/to/main.tex", 3, 1, 3, 11, b"x"),
     ]
-    expanded = expand_macros(tex, expansions)
+    expanded = apply_expansions_to_file_contents(tex, expansions)
     assert expanded == to_bytes(r"\def\simpledef{x}", "$x$", "$x$")
 
 
 def test_expand_macros_wrapping_in_groups():
     tex = to_bytes(r"\def\simpledef{x}", r"$\simpledef$")
-    expansions = [Expansion(rb"\simpledef", 2, 1, 2, 11, b"x")]
-    expanded = expand_macros(tex, expansions, wrap_expansions_in_groups=True)
+    expansions = [Expansion(rb"\simpledef", "/path/to/main.tex", 2, 1, 2, 11, b"x")]
+    expanded = apply_expansions_to_file_contents(
+        tex, expansions, wrap_expansions_in_groups=True
+    )
     assert expanded == to_bytes(r"\def\simpledef{x}", "${x}$")
 
 
@@ -241,7 +265,7 @@ def test_no_expand_macros_if_macro_name_not_at_offset():
         # The detected region for expansion (col 0 to 10) does not start
         # with the macro (which is offset by one col), so the expansion
         # should not take place.
-        Expansion(rb"\simpledef", 2, 0, 2, 10, b"x"),
+        Expansion(rb"\simpledef", "/path/to/main.tex", 2, 0, 2, 10, b"x"),
     ]
-    expanded = expand_macros(tex, expansions)
+    expanded = apply_expansions_to_file_contents(tex, expansions)
     assert expanded == tex
