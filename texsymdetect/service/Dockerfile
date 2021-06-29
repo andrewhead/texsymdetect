@@ -37,8 +37,9 @@ RUN npm run install-katex
 WORKDIR /sources/perl
 RUN apt-get install -y cpanminus
 RUN apt-get install -y build-essential
-RUN apt-get install -y libxml-libxslt-perl
+RUN apt-get install -y libxslt1-dev libxml-libxslt-perl
 RUN cpanm LWP Text::Unidecode Archive::Zip JSON::XS IO::String File::Which XML::LibXSLT XML::LibXML Image::Size
+RUN cpanm Devel::StackTrace
 COPY perl/setup.sh ./
 RUN chmod +x setup.sh
 RUN ./setup.sh
