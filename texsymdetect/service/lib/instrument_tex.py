@@ -28,7 +28,17 @@ TEX_COLOR_MACROS = "\n".join(
 )
 
 
-FontSize = Literal["normal", "script", "scriptscript"]
+FontSize = Literal[
+    "normal",
+    "normal_script",
+    "normal_scriptscript",
+    "small",
+    "small_script",
+    "small_scriptscript",
+    "footnote",
+    "footnote_script",
+    "footnote_scriptscript",
+]
 
 
 @dataclass(frozen=True)
@@ -51,7 +61,17 @@ def add_colorized_symbols(
 
     # Prepare a TeX file where each symbol is repeated, each time on a new line, in
     # a new size, and in a new color.
-    FONT_SIZES: List[FontSize] = ["normal", "script", "scriptscript"]
+    FONT_SIZES: List[FontSize] = [
+        "normal",
+        "normal_script",
+        "normal_scriptscript",
+        "small",
+        "small_script",
+        "small_scriptscript",
+        "footnote",
+        "footnote_script",
+        "footnote_scriptscript",
+    ]
 
     detectables_tex = ""
     detectables: List[Detectable] = []
@@ -137,11 +157,23 @@ def _add_detectable(
         entity_tex = f"\\{macro}{{{entity_tex}}}"
 
     if size == "normal":
-        sized_tex = f"$${entity_tex}$$"
-    elif size == "script":
-        sized_tex = f"$$_{{{entity_tex}}}$$"
-    elif size == "scriptscript":
-        sized_tex = f"$$_{{_{{{entity_tex}}}}}$$"
+        sized_tex = fr"{{\normalsize $${entity_tex}$$}}"
+    elif size == "normal_script":
+        sized_tex = fr"{{\normalsize $$_{{{entity_tex}}}$$}}"
+    elif size == "normal_scriptscript":
+        sized_tex = fr"{{\normalsize $$_{{_{{{entity_tex}}}}}$$}}"
+    elif size == "small":
+        sized_tex = fr"{{\small $${entity_tex}$$}}"
+    elif size == "small_script":
+        sized_tex = fr"{{\small $$_{{{entity_tex}}}$$}}"
+    elif size == "small_scriptscript":
+        sized_tex = fr"{{\small $$_{{_{{{entity_tex}}}}}$$}}"
+    elif size == "footnote":
+        sized_tex = fr"{{\footnotesize $${entity_tex}$$}}"
+    elif size == "footnote_script":
+        sized_tex = fr"{{\footnotesize $$_{{{entity_tex}}}$$}}"
+    elif size == "footnote_scriptscript":
+        sized_tex = fr"{{\footnotesize $$_{{_{{{entity_tex}}}}}$$}}"
 
     red, green, blue = next(color_generator)
     colorized = rf"\textcolor[RGB]{{{red},{green},{blue}}}{{{sized_tex}}}" + "\n\n"
