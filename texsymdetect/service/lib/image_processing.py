@@ -165,8 +165,17 @@ def extract_templates(
 
 
 def detect_tokens(
-    page_images: Dict[PageNumber, np.array], token_images: Dict[Detectable, np.array],
+    page_images: Dict[PageNumber, np.array],
+    token_images: Dict[Detectable, np.array],
+    require_blank_border: bool = False,
 ) -> Dict[PageNumber, TokenIndex]:
+    """
+    Detect appearances of tokens in images of pages. If 'require_blank_border' is set,
+    filter the detected tokens to just those that are surrounded with whitespace. This
+    option is intended to help reduce the number of false positives. See the
+    implementation comments below for more details.
+    """
+
     tokens: Dict[PageNumber, TokenIndex] = {}
 
     # Load page images as black-and-white; symbol detection should not depend on color.
@@ -240,17 +249,18 @@ def detect_tokens(
                     # tokens would be found everywhere that there are black pixels
                     # if there are not checks to make sure that the black pixels are
                     # surrounded in white pixels.
-                    if np.any(page_image_bw[y - 1, x - 1 : x + w + 1] == 0):
-                        continue
-                    # Bottom boundary.
-                    elif np.any(page_image_bw[y + h, x - 1 : x + w + 1] == 0):
-                        continue
-                    # Left boundary.
-                    elif np.any(page_image_bw[y - 1 : y + h + 1, x - 1] == 0):
-                        continue
-                    # Right boundary.
-                    elif np.any(page_image_bw[y - 1 : y + h + 1, x + w] == 0):
-                        continue
+                    if require_blank_border:
+                        if np.any(page_image_bw[y - 1, x - 1 : x + w + 1] == 0):
+                            continue
+                        # Bottom boundary.
+                        elif np.any(page_image_bw[y + h, x - 1 : x + w + 1] == 0):
+                            continue
+                        # Left boundary.
+                        elif np.any(page_image_bw[y - 1 : y + h + 1, x - 1] == 0):
+                            continue
+                        # Right boundary.
+                        elif np.any(page_image_bw[y - 1 : y + h + 1, x + w] == 0):
+                            continue
 
                     # Save appearance of this token.
                     # If the token has already been found at this location (e.g., if there
