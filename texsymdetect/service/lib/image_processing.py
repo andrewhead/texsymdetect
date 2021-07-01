@@ -5,7 +5,7 @@ import random
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import cv2
 import numpy as np
@@ -84,9 +84,6 @@ def extract_templates(
         dict
     )
     symbol_templates: Dict[Detectable, SymbolTemplate] = {}
-
-    token_detectables = filter(lambda d: isinstance(d.entity, TexToken), detectables)
-    symbol_detectables = filter(lambda d: isinstance(d.entity, TexSymbol), detectables)
 
     for d in detectables:
 
@@ -167,7 +164,7 @@ def extract_templates(
 def detect_tokens(
     page_images: Dict[PageNumber, np.array],
     token_images: Dict[Detectable, np.array],
-    require_blank_border: bool = False,
+    require_blank_border: bool = True,
 ) -> Dict[PageNumber, TokenIndex]:
     """
     Detect appearances of tokens in images of pages. If 'require_blank_border' is set,
@@ -203,6 +200,7 @@ def detect_tokens(
         page_image_bw = page_images_bw[page_no]
 
         page_width = len(page_image[0])
+        already_detected: Dict[Id, Set[Rectangle]] = defaultdict(set)
         token_instances: List[TokenInstance] = []
 
         for detectable, images in token_images.items():
@@ -266,11 +264,11 @@ def detect_tokens(
                     # If the token has already been found at this location (e.g., if there
                     # are multiple detectables with the same MathML) only save once.
                     rect = Rectangle(left=x, top=y, width=w, height=h,)
-                    instance = TokenInstance(
-                        Id(detectable.entity.mathml, detectable.font_size), rect
-                    )
-                    if instance not in token_instances:
+                    token_id = Id(detectable.entity.mathml, detectable.font_size)
+                    instance = TokenInstance(token_id, rect)
+                    if not rect in already_detected[token_id]:
                         token_instances.append(instance)
+                        already_detected[token_id].add(rect)
 
         tokens[page_no] = TokenIndex(token_instances)
 
