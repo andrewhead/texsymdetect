@@ -864,7 +864,7 @@ class MathMlElementMerger:
         if not _has_s2_offset_annotations(element):
             return False
 
-        MERGEABLE_TOKEN_TAGS = ["mn", "mi", "mo", "msub", "msup", "msubsup"]
+        MERGEABLE_TOKEN_TAGS = ["mn", "mi", "mo", "msub", "msup", "msubsup", "mtext"]
         if element.name in MERGEABLE_TOKEN_TAGS:
             return True
 
@@ -919,12 +919,15 @@ class MathMlElementMerger:
         #   "4<x>", which should be split into two symbols.
         if element.name == "mi":
             return bool(self.to_merge[0].name == "mi")
-        # 4. Numbers can be merged into letters before them, adding to the identifier.
-        # 5. Numbers can be merged into numbers before them, extending an identifier, or making
+        # 4. Letters from 'mtext' elements can be merged with each other.
+        if element.name == "mtext":
+            return last_element.name in ["mtext"]
+        # 5. Numbers can be merged into letters before them, adding to the identifier.
+        # 6. Numbers can be merged into numbers before them, extending an identifier, or making
         #    a number with multiple digits.
         if element.name == "mn":
-            return last_element.name in ["mi", "mn"]
-        # 6. Operators can be merged into operators that appear just before them to form multi-
+            return last_element.name in ["mi", "mn", "mtext"]
+        # 7. Operators can be merged into operators that appear just before them to form multi-
         #    symbol operators, like '++', '//', etc.
         if element.name == "mo":
             return last_element.name in ["mo"]

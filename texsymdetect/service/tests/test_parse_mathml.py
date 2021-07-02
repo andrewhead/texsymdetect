@@ -104,12 +104,18 @@ def test_merge_contiguous_operators():
     assert str(result.symbols[0].element) == "<mo>∣∣</mo>"
 
 
-def test_merge_contigous_symbols_delimit_at_operator():
+def test_merge_contigous_identifiers_delimit_at_operator():
     result = parse_element(load_fragment_tag("var1_plus_var2.xml"))
     assert len(result.symbols) == 3
     assert str(result.symbols[0].element) == "<mi>var1</mi>"
     assert str(result.symbols[1].element) == "<mo>+</mo>"
     assert str(result.symbols[2].element) == "<mi>var2</mi>"
+
+
+def test_merge_contiguous_text_elements():
+    result = parse_element(load_fragment_tag("text_relu.xml"))
+    assert len(result.symbols) == 1
+    assert str(result.symbols[0].element) == "<mtext>ReLU</mtext>"
 
 
 def test_do_not_parse_error_node():
