@@ -2,7 +2,6 @@ import os.path
 from dataclasses import dataclass
 from typing import Iterator, List, Optional, Tuple, Union
 
-import numpy as np
 from typing_extensions import Literal
 
 from lib.parse_formula_tex import TexSymbol, TexToken
