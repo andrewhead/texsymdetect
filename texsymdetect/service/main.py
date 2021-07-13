@@ -19,13 +19,7 @@ from lib.expand_macros import (
     apply_expansions,
     detect_expansions,
 )
-from lib.image_processing import (
-    LocatedEntity,
-    detect_symbols,
-    detect_tokens,
-    extract_templates,
-    save_debug_images,
-)
+from lib.image_processing import LocatedEntity, save_debug_images
 from lib.instrument_tex import add_colorized_symbols
 from lib.parse_formula_tex import (
     TexSymbol,
@@ -37,7 +31,12 @@ from lib.parse_formula_tex import (
 from lib.parse_mathml import NodeType, parse_formula
 from lib.parse_tex import FormulaExtractor
 from lib.raster_document import raster_pages
-from lib.symbol_search import Rectangle
+from lib.symbol_search import (
+    Rectangle,
+    detect_symbols,
+    detect_tokens,
+    extract_templates,
+)
 from lib.unpack_tex import unpack_archive
 
 app = FastAPI()

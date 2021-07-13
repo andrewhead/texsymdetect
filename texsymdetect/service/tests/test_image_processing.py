@@ -3,17 +3,20 @@ from typing import Dict, List
 
 import numpy as np
 import pytest
-from lib.image_processing import FontSize, SymbolInstance, SymbolTemplate
+from lib.instrument_tex import FontSize
 from lib.symbol_search import Component
 from lib.symbol_search import Id as SymbolId
 from lib.symbol_search import (
     Point,
     Rectangle,
+    SymbolInstance,
+    SymbolTemplate,
     TokenIndex,
     create_symbol_template,
     find_symbols,
 )
-from main import MathMl
+
+MathMl = str
 
 
 def p(x: float, y: float) -> Point:
@@ -25,16 +28,16 @@ def test_construct_composite_template():
     images: Dict[MathMl, Dict[FontSize, List[np.array]]] = defaultdict(dict)
     x_img = np.array([[0, 255, 0], [255, 0, 255], [0, 255, 0]], dtype=np.int)
     images["x"]["normal"] = [x_img]
-    i_img = np.array([[0], [0]], dtype=np.int)
+    i_img = np.array([[0], [255], [0]], dtype=np.int)
     images["i"]["script"] = [i_img]
 
-    # Composite image is white, except for...
+    # Image is white, except for...
     composite_symbol_img = np.zeros((3, 5), dtype=np.int)
     composite_symbol_img[:] = 255
     # 'x' appearing at [left=0, top=0, width=3, height=3]
     composite_symbol_img[0:3, 0:3] = x_img
-    # 'i' appearing at [left=4, top=1, width=1, height=2]
-    composite_symbol_img[1:3, 4:5] = i_img
+    # 'i' appearing at [left=4, top=0, width=1, height=3]
+    composite_symbol_img[0:3, 4:5] = i_img
 
     # List of children expected to be found in the composite symbol image.
     children = ["x", "i"]
@@ -46,23 +49,54 @@ def test_construct_composite_template():
     assert len(members) == 1
     assert members[0].symbol_id == SymbolId("i", "script")
     assert members[0].center.x == pytest.approx(3.0)
-    assert members[0].center.y == pytest.approx(0.5)
+    assert members[0].center.y == pytest.approx(0.0)
+
+
+def test_expect_blank_border_around_tokens():
+    x_img = np.array([[0, 255, 0], [255, 0, 255], [0, 255, 0]], dtype=np.int)
+    images: Dict[MathMl, Dict[FontSize, List[np.array]]] = defaultdict(dict)
+    x_img = np.array([[0, 255, 0], [255, 0, 255], [0, 255, 0]], dtype=np.int)
+    images["x"]["normal"] = [x_img]
+    i_img = np.array([[0], [0]], dtype=np.int)
+    images["i"]["script"] = [i_img]
+
+    # Composite image is white, except for...
+    composite_symbol_img = np.zeros((3, 6), dtype=np.int)
+    composite_symbol_img[:] = 255
+    # 'x' appearing at [left=0, top=0, width=3, height=3]
+    composite_symbol_img[0:3, 0:3] = x_img
+    # 'i' appearing at [left=4, top=1, width=1, height=2]
+    composite_symbol_img[1:3, 4:5] = i_img
+    # And a junk black pixel bordering the 'i' on the right.
+    composite_symbol_img[1, 5] = 0
+
+    # List of children expected to be found in the composite symbol image.
+    # (Though note that the 'i' should not be detected).
+    children = ["x", "i"]
+
+    # Create the composite symbol template.
+    composite_template = create_symbol_template(
+        composite_symbol_img, images, children, require_blank_border_around_tokens=True
+    )
+    assert composite_template.anchor == SymbolId("x", "normal")
+    members = composite_template.members
+    assert len(members) == 0
 
 
 def test_construct_composite_template_without_repeating_symbols():
     # An earlier version of the template creation function would duplicate components if a single
     # subsymbol appeared multiple times in the composite symbol. Check that there is no duplication.
     images: Dict[MathMl, Dict[FontSize, List[np.array]]] = defaultdict(dict)
-    i_img = np.array([[0], [0]], dtype=np.int)
+    i_img = np.array([[0], [255], [0]], dtype=np.int)
     images["i"]["normal"] = [i_img]
 
     # Composite image is white, except for...
-    composite_symbol_img = np.zeros((2, 3), dtype=np.int)
+    composite_symbol_img = np.zeros((3, 3), dtype=np.int)
     composite_symbol_img[:] = 255
     # 'i' appearing at [left=0, top=0, width=1, height=2]
-    composite_symbol_img[0:2, 0:1] = i_img
+    composite_symbol_img[0:3, 0:1] = i_img
     # 'i' appearing at [left=2, top=0, width=1, height=2]
-    composite_symbol_img[0:2, 2:3] = i_img
+    composite_symbol_img[0:3, 2:3] = i_img
 
     # List of children expected to be found in the composite symbol image.
     children = ["i", "i"]

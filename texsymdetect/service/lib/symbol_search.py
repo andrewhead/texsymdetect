@@ -1,36 +1,28 @@
+import logging
 import math
 import re
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, List, Optional
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
+import cv2
 import numpy as np
 import scipy.spatial
 
-from lib.instrument_tex import FontSize
+from lib.image_processing import (
+    Point,
+    Rectangle,
+    _contains_start_graphic,
+    find_boxes_with_rgb,
+    find_in_image,
+)
+from lib.instrument_tex import Detectable, FontSize
+from lib.parse_formula_tex import TexSymbol, TexToken
 
+logger = logging.getLogger("texsymdetect")
 
-@dataclass
-class Point:
-    x: float
-    y: float
-
-
-@dataclass
-class PixelPosition:
-    x: int
-    y: int
-
-
-@dataclass(frozen=True)
-class Rectangle:
-    """
-    Rectangle within an image. Left and top refer to positions of pixels.
-    """
-
-    left: int
-    top: int
-    width: int
-    height: int
+PageNumber = int
+MathMl = str
 
 
 @dataclass(frozen=True)
@@ -79,98 +71,56 @@ class SymbolTemplate:
     " All members of the composite template except for the anchor. "
 
 
-def create_bitstring_from_image(image: np.array, wildcard_padding: int = 0) -> str:
-    """
-    Convert image to flattened string representation appropriate for conducting efficient
-    exact matching of pixesl. In the string, a '0' represents a blank pixel (e.g., white)
-    and a '1' represents a non-blank pixel (e.g., gray or black).
-
-    It is assumed that the input image is in grayscale format.
-
-    If using this method to create a template to match against a larger image, set the
-    'wildcard' to be the number of pixels difference between the width of the
-    larger image and the template image. Wildcards (i.e., '.') will be inserted for these
-    extra padded pixels, which will be able to match anything in the larger image.
-    """
-
-    thresholded = image.copy()
-    blank_pixels = image == 255
-    non_blank_pixels = image < 255
-
-    thresholded[blank_pixels] = 0
-    thresholded[non_blank_pixels] = 1
-
-    s = ""
-    for row_index, row in enumerate(thresholded):
-        s += "".join([str(int(p)) for p in row.tolist()])
-        if row_index < len(thresholded) - 1:
-            s += "." * wildcard_padding
-
-    return s
-
-
-def find_in_bitstring(
-    pattern_bitstring: str, image_bitstring: str, image_width: int
-) -> Iterator[PixelPosition]:
-    """
-    Find appearances of pattern bit string (sequence of 0s, 1s, and wildcards ('.')) in
-    an image bit string (sequence of 0s and 1s). Return a iterator over points (left, top)
-    where the pattern can be found in the image. 'image_width' argument is used to convert
-    character positions of the matches to 2D positions in the image.
-    """
-
-    search_start = 0
-    pattern = re.compile(pattern_bitstring)
-    while True:
-        match = pattern.search(image_bitstring, pos=search_start)
-        if match is None:
-            break
-
-        start_character = match.start()
-        left = start_character % image_width
-        top = math.floor(start_character / image_width)
-        yield PixelPosition(left, top)
-
-        search_start = start_character + 1
-
-
-MathMl = str
-
-
 def create_symbol_template(
     symbol_image: np.array,
     token_images: Dict[MathMl, Dict[FontSize, List[np.array]]],
     token_mathmls: Iterable[str],
+    require_blank_border_around_tokens: bool = True,
 ) -> Optional[SymbolTemplate]:
 
-    symbol_bitstring = create_bitstring_from_image(symbol_image)
-    symbol_width = symbol_image.shape[1]
+    # Unpack token images into a 1-D list.
+    token_image_list: List[np.array] = []
+    mathmls: List[MathMl] = []
+    font_sizes: List[FontSize] = []
+    for mathml, sizes in token_images.items():
+        if mathml not in token_mathmls:
+            continue
+        for font_size, images in sizes.items():
+            for image in images:
+                token_image_list.append(image)
+                font_sizes.append(font_size)
+                mathmls.append(mathml)
+
+    # Search in image for tokens.
+    rects = find_in_image(
+        token_image_list,
+        symbol_image,
+        require_blank_border=require_blank_border_around_tokens,
+    )
+
+    # Unroll tokens into a 1-D list.
+    rects_unrolled: List[Rectangle] = []
+    mathmls_unrolled: List[MathMl] = []
+    font_sizes_unrolled: List[FontSize] = []
+    for mathml, font_size, rect_list in zip(mathmls, font_sizes, rects):
+        for rect in rect_list:
+            rects_unrolled.append(rect)
+            mathmls_unrolled.append(mathml)
+            font_sizes_unrolled.append(font_size)
 
     # Find positions of child symbols in the composite symbol image.
     components: List[Component] = []
-    for token_mathml in token_mathmls:
-        for level, images in token_images[token_mathml].items():
-            for child_image in images:
-                child_height, child_width = child_image.shape
-                child_bitstring = create_bitstring_from_image(
-                    child_image, wildcard_padding=symbol_width - child_width
-                )
 
-                # Find the first appearance of the child symbol (from top-to-bottom)
-                # in the image, and add it as a component to the template. Top-to-bottom search is
-                # performed because of the order way find_in_bitstring operates (even though
-                # it probably makes more sense to search left-to-right, given that the
-                # child keys passed in as 'children' will likely be roughly in left-to-right order).
-                for position in find_in_bitstring(
-                    child_bitstring, symbol_bitstring, symbol_width
-                ):
-                    center = Point(
-                        position.x + child_width / 2.0, position.y + child_height / 2.0
-                    )
-                    component = Component(Id(token_mathml, level), center)
-                    if component not in components:
-                        components.append(component)
-                        break
+    # Add tokens to the template left-to-right.
+    for (mathml, font_size, rect) in sorted(
+        zip(mathmls_unrolled, font_sizes_unrolled, rects_unrolled),
+        key=lambda t: t[2].left,
+    ):
+        if mathml in token_mathmls:
+            center = Point(rect.left + rect.width / 2.0, rect.top + rect.height / 2.0)
+            component = Component(Id(mathml, font_size), center)
+            if component not in components:
+                components.append(component)
 
     # Composite symbol needs at least one component.
     if not components:
@@ -185,7 +135,141 @@ def create_symbol_template(
         component.center.x -= anchor.center.x
         component.center.y -= anchor.center.y
 
+    # assert (
+    #     False
+    # ), "May want to filter out overlapping tokens... for instance, by blanking out the part of the image that matches."
+
     return SymbolTemplate(anchor.symbol_id, components)
+
+
+def extract_templates(
+    page_images: Dict[PageNumber, np.array], detectables: Sequence[Detectable],
+) -> Tuple[Dict[Detectable, List[np.array]], Dict[Detectable, SymbolTemplate]]:
+    """
+    Given images of pages from a paper that has been modified to include appearances of many tokens
+    and symbols (i.e., 'detectables'), extract templates for those tokens and symbols
+    that can be used to identify them in other documents.
+
+    Returns a collection of token templates (images), and symbol templates
+    (a flexible template format).
+    
+    Note that both tokens and symbols must be passed in as detectables;
+    symbols cannot be found without first finding their component tokens. All
+    detectables should be provided in the order that they appear in the TeX,
+    which should include all tokens first, followed by all symbols.
+    """
+
+    sorted_page_images = [page_images[pn] for pn in sorted(page_images.keys())]
+
+    def dequeue_page() -> Optional[np.array]:
+        " Remove image of the next page from the list of all pages in the document. "
+        if not sorted_page_images:
+            return None
+        image = sorted_page_images.pop(0)
+        return image
+
+    page_image = dequeue_page()
+    next_page_image = dequeue_page()
+
+    # Scan all pages until the marker is found that suggests that the original LaTeX
+    # document has ended, and the detectables (i.e., colorized tokens and symbols)
+    # are about to appear.
+    while True:
+        if not _contains_start_graphic(page_image):
+            page_image = next_page_image
+            next_page_image = dequeue_page()
+            continue
+
+        # Once the marker has been found, skip forward one more page so that
+        # symbols and tokens will be detected on the page after the marker.
+        page_image = next_page_image
+        next_page_image = dequeue_page()
+        break
+
+    # Templates are extracted for detecting both tokens and symbols. Templates
+    # for tokens are images of single letters or marks. Templates for symbols
+    # are groups of tokens and the expected (but somewhat flexible) spatial
+    # relationships between them.
+    token_images: Dict[Detectable, List[np.array]] = defaultdict(list)
+    token_images_lookup: Dict[MathMl, Dict[FontSize, List[np.array]]] = defaultdict(
+        dict
+    )
+    symbol_templates: Dict[Detectable, SymbolTemplate] = {}
+
+    for d in detectables:
+
+        # Find a bounding box around the token / symbol.
+        red, green, blue = d.color
+        rects = find_boxes_with_rgb(page_image, red, green, blue)
+
+        if next_page_image is not None:
+            if not rects:
+                rects = find_boxes_with_rgb(next_page_image, red, green, blue)
+                if not rects:
+                    logger.warning("Could not find detectable %s.", d)
+                    continue
+                page_image = next_page_image
+                next_page_image = dequeue_page()
+            else:
+                rects.extend(find_boxes_with_rgb(next_page_image, red, green, blue))
+                if len(rects) > 1:
+                    logger.warning(
+                        "Unexpectedly more than one instance of detectable %s. "
+                        + "There may have been a problem in the coloring code.",
+                        d,
+                    )
+
+        if not rects:
+            logger.warning("Could not find detectable %s.", d)
+
+        box = rects[0]
+        logger.debug(f"Found symbol at {box}.")
+
+        # Extract a cropped, black-and-white image of the token or symbol.
+        cropped_bw = page_image[
+            box.top : box.top + box.height, box.left : box.left + box.width
+        ]
+        cropped_bw[
+            np.where(
+                (cropped_bw[:, :, 0] != 255)
+                | (cropped_bw[:, :, 1] != 255)
+                | (cropped_bw[:, :, 2] != 255)
+            )
+        ] = [0, 0, 0]
+        cropped_bw = cv2.cvtColor(cropped_bw, cv2.COLOR_BGR2GRAY)
+
+        # For simple symbols, extract images.
+        if isinstance(d.entity, TexToken):
+
+            # Only save a template if it has a different appearance from the other templates
+            # saved for a symbol. This is important as a bunch of templates for the symbol
+            # at the same size are created to try to make sure that templates are saved for
+            # every way that extra space might have been introduced between characters in the
+            # symbol when the PDF was rendered to an image.
+            already_saved = False
+            for img in token_images[d]:
+                if np.array_equal(img, cropped_bw):
+                    already_saved = True
+                    break
+
+            if not already_saved:
+                token_images[d].append(cropped_bw)
+                lookup_dict = token_images_lookup[d.entity.mathml]
+                if d.font_size not in lookup_dict:
+                    lookup_dict[d.font_size] = []
+                lookup_dict[d.font_size].append(cropped_bw)
+
+        # Note that, if the caller of this function did their job in ordering the list of
+        # detectables, symbols will be processed only after all tokens have been processed.
+        if isinstance(d.entity, TexSymbol):
+            token_mathmls = [t.mathml for t in d.entity.tokens]
+            template = create_symbol_template(
+                cropped_bw, token_images_lookup, token_mathmls
+            )
+            if template:
+                symbol_templates[d] = template
+
+    return token_images, symbol_templates
 
 
 class TokenIndex:
@@ -251,6 +335,70 @@ class TokenIndex:
             matches.append(token)
 
         return matches
+
+
+def detect_tokens(
+    page_images: Dict[PageNumber, np.array],
+    token_images: Dict[Detectable, List[np.array]],
+    require_blank_border: bool = True,
+) -> Dict[PageNumber, TokenIndex]:
+    """
+    Detect appearances of tokens in images of pages. If 'require_blank_border' is set,
+    filter the detected tokens to just those that are surrounded with whitespace. This
+    option is intended to help reduce the number of false positives. See the
+    implementation comments below for more details.
+    """
+
+    tokens: Dict[PageNumber, TokenIndex] = {}
+
+    # Unpack token images into a 1-D list.
+    token_image_list = []
+    token_list = []
+    for (token, images) in token_images.items():
+        for image in images:
+            token_image_list.append(image)
+            token_list.append(token)
+
+    for page_no, page_image in sorted(page_images.items(), key=lambda t: t[0]):
+        logger.debug("Detecting tokens on page %d.", page_no)
+        page_image_gray = cv2.cvtColor(page_image, cv2.COLOR_BGR2GRAY)
+        rects = find_in_image(
+            token_image_list,
+            page_image_gray,
+            require_blank_border=require_blank_border,
+        )
+        token_instances: List[TokenInstance] = []
+        for (token, rect_list) in zip(token_list, rects):
+            for rect in rect_list:
+                token_instances.append(
+                    TokenInstance(
+                        id_=Id(token.entity.mathml, token.font_size), location=rect
+                    )
+                )
+        tokens[page_no] = TokenIndex(token_instances)
+
+    return tokens
+
+
+def detect_symbols(
+    token_instances: Dict[PageNumber, TokenIndex],
+    symbol_templates: Dict[Detectable, SymbolTemplate],
+) -> Dict[PageNumber, List[SymbolInstance]]:
+
+    symbol_instances: Dict[PageNumber, List[SymbolInstance]] = defaultdict(list)
+    for page_no, token_index in token_instances.items():
+        logger.debug("Scanning page %d for symbols.", page_no)
+        for detectable, template in symbol_templates.items():
+            for rect in find_symbols(template, token_index):
+                instance = SymbolInstance(
+                    Id(detectable.entity.mathml, detectable.font_size), rect
+                )
+                # Deduplicate symbols, in case two symbols are actually the same symbol (as
+                # may happen if two symbols had different TeX, but the same MathML).
+                if instance not in symbol_instances[page_no]:
+                    symbol_instances[page_no].append(instance)
+
+    return symbol_instances
 
 
 def find_symbols(template: SymbolTemplate, index: TokenIndex) -> Iterator[Rectangle]:
