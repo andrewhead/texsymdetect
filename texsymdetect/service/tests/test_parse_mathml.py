@@ -58,6 +58,15 @@ def test_merge_contiguous_identifiers():
     ]
 
 
+def test_option_do_not_merge_contiguous_identifiers():
+    result = parse_element(load_fragment_tag("relu.xml"), merge_adjacent_elements=False)
+    assert len(result.symbols) == 4
+    assert str(result.symbols[0].element) == "<mi>R</mi>"
+    assert str(result.symbols[1].element) == "<mi>e</mi>"
+    assert str(result.symbols[2].element) == "<mi>L</mi>"
+    assert str(result.symbols[3].element) == "<mi>U</mi>"
+
+
 def test_extract_operator_tokens():
     result = parse_element(load_fragment_tag("plus.xml"))
     assert len(result.symbols[0].tokens) == 1
@@ -270,6 +279,14 @@ def test_detect_function_declaration():
     assert str(child_symbols[2].element) == "<mi>x</mi>"
     assert str(child_symbols[4].element) == "<mi>θ</mi>"
     assert str(child_symbols[6].element) == "<mi>y</mi>"
+
+
+def test_option_do_not_detect_functions():
+    result = parse_element(
+        load_fragment_tag("function.xml"), insert_function_elements=False
+    )
+    assert len(result.symbols) == 8
+    assert str(result.symbols[0].element) == "<mi>p</mi>"
 
 
 def test_detect_definition_of_function():

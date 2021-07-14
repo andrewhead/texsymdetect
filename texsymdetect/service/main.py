@@ -198,7 +198,11 @@ def extract_symbols(
 
         for (formula, mathml) in formula_mathmls.items():
             if mathml is not None:
-                nodes = parse_formula(mathml)
+                nodes = parse_formula(
+                    mathml,
+                    merge_adjacent_elements=False,
+                    insert_function_elements=False,
+                )
                 for node in nodes:
                     instance = create_symbol_from_node(node, formula)
                     mathml_texs[str(node.element)] = instance.tex

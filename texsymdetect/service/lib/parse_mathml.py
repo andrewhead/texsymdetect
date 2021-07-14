@@ -118,16 +118,26 @@ class Node:
         return any([t.type_ == "affix" for t in self.tokens])
 
 
-def parse_formula(mathml: str) -> List[Node]:
+def parse_formula(
+    mathml: str,
+    merge_adjacent_elements: bool = True,
+    insert_function_elements: bool = True,
+) -> List[Node]:
     """
-    Extract a list of all symbols from a MathML. Guaranteed to return symbols in the same order
-    every time---specifically, in the order visited in breadth-first search.
+    Extract a list of all symbols from a MathML specification of a formula. Guaranteed to
+    return symbols in the same order every time---specifically, in the order visited in
+    breadth-first search.
+
+    For options, see documentation in 'parse_element'.
     """
 
     soup = BeautifulSoup(mathml, "lxml")
 
     # Parse the MathML formula, extracting top-level symbols.
-    top_level_symbols = parse_element(soup.body).symbols
+    parse_result = parse_element(
+        soup.body, merge_adjacent_elements, insert_function_elements
+    )
+    top_level_symbols = parse_result.symbols
 
     # Build a list of all symbols found with a breadth-first search over the symbol tree.
     all_symbols = []
@@ -402,7 +412,11 @@ def extract_tokens(root: Tag) -> Dict[str, Token]:
     return tokens
 
 
-def normalize_formula_structure(root: Tag) -> Tag:
+def normalize_formula_structure(
+    root: Tag,
+    merge_adjacent_elements: bool = True,
+    insert_function_elements: bool = True,
+) -> Tag:
     """
     Normalize the structure of a MathML formula, for instance, combining consecutive
     digits into one number. This method returns a cleaned clone of the tree provided as input.
@@ -414,23 +428,40 @@ def normalize_formula_structure(root: Tag) -> Tag:
     parent = BeautifulSoup("<div></div>", "lxml").div
     parent.append(root_clone)
 
-    walk_postorder(parent, merge_row_elements)
-    walk_postorder(parent, merge_functions)
+    if merge_adjacent_elements:
+        walk_postorder(parent, merge_row_elements)
+    if insert_function_elements:
+        walk_postorder(parent, merge_functions)
 
     return list(parent.children)[0]
 
 
-def parse_element(element: Tag) -> ParseResult:
+def parse_element(
+    element: Tag,
+    merge_adjacent_elements: bool = True,
+    insert_function_elements: bool = True,
+) -> ParseResult:
     """
     Extract symbol nodes from an element in a BeautifulSoup MathML parse tree. This function
     recursively visits child elements in the BeautifulSoup parse tree, creating symbols for
-    each of the element's descendants. The symbol returned will have one descendant for each
+    each of the element's descendants. The symbol returned has one descendant for each
     symbol found during the recursive parse.
+
+    If 'merge_adjacent_elements' is True, this method attempts to merge continguous
+    elements together when they are expected to be part of the same semantic unit, combining,
+    for instance, adjacent digits into numbers, or adjacent alphabetic letters into words.
+
+    If 'insert_function_elements' is True, this method attempts to identify spans of
+    elements that represent a function call (i.e., a function name followed by parameters 
+    within parentheses). It inserts new elements in the parse tree for each function found,
+    with the original span of elements as child nodes of the new element.
     """
 
     cleaned = clean_elements(element)
     tokens = extract_tokens(cleaned)
-    cleaned = normalize_formula_structure(cleaned)
+    cleaned = normalize_formula_structure(
+        cleaned, merge_adjacent_elements, insert_function_elements
+    )
     parse_result = _parse_element(cleaned, tokens)
 
     # Remove custom S2 annotations that were used for parsing, but which do not belong
