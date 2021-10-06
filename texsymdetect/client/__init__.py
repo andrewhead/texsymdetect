@@ -40,9 +40,26 @@ class Symbol:
     parent: Optional["Symbol"]
 
 
+@dataclass
+class TexSymbol:
+    """
+    A symbol extracted from a TeX formula, with additional information about
+    where that symbol came from within the formula.
+    """
+
+    id_: int
+    type_: str
+    mathml: str
+    tex: str
+    start: int
+    end: int
+    parent: Optional["TexSymbol"]
+
+
 def detect_symbols(
     sources_dir: Path, host: str = "http://127.0.0.1", port: int = 8001,
 ) -> List[Symbol]:
+    """ Detect positions of symbols in LaTeX paper. """
 
     with tempfile.TemporaryDirectory() as temp_dir:
         # Prepare a gzipped tarball file containing the sources.
@@ -93,3 +110,50 @@ def detect_symbols(
             symbol.parent = symbols[parents[id_]]
 
     return [s for s in symbols.values()]
+
+
+def parse_formulas(
+    formulas: List[str], host: str = "http://127.0.0.1", port: int = 8001
+) -> Dict[str, List[TexSymbol]]:
+    """
+    Parse a set of a LaTeX formulas to detect the symbols that the formulas
+    are comprised of, along with normalized MathML representations of symbols.
+    """
+
+    # Make request to service.
+    endpoint = f"{host}:{port}/parse_formulas"
+    try:
+        response = requests.post(endpoint, json={"formulas": formulas})
+    except requests.exceptions.RequestException as e:
+        raise ServerConnectionException(f"Request to server {endpoint} failed.", e)
+
+    # Get result.
+    data = response.json()
+
+    formula_symbols: Dict[str, List[TexSymbol]] = {f: [] for f in formulas}
+    for symbol_data, formula in zip(data, formulas):
+
+        # Create symbols from JSON
+        symbols: Dict[SymbolId, TexSymbol] = {}
+        parents: Dict[SymbolId, SymbolId] = {}
+        for item in symbol_data:
+            symbol = TexSymbol(
+                id_=item["id"],
+                type_=item["type"],
+                mathml=item["mathml"],
+                tex=item["tex"],
+                start=item["start"],
+                end=item["end"],
+                parent=None,
+            )
+            symbols[symbol.id_] = symbol
+            parents[symbol.id_] = item["parent"]
+
+        # Resonlve parents of symbols.
+        for id_, symbol in symbols.items():
+            if parents[id_]:
+                symbol.parent = symbols[parents[id_]]
+
+        formula_symbols[formula] = list(symbols.values())
+
+    return formula_symbols

@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import os
 import os.path
@@ -11,6 +12,7 @@ from typing import Any, Dict, List, Optional, Set
 import aiofiles
 import uvicorn
 from fastapi import FastAPI, File, UploadFile
+from pydantic import BaseModel
 from texcompile.client import compile
 from typing_extensions import Literal
 
@@ -22,11 +24,13 @@ from lib.expand_macros import (
 from lib.image_processing import LocatedEntity, save_debug_images
 from lib.instrument_tex import add_colorized_symbols
 from lib.parse_formula_tex import (
+    Formula,
     TexSymbol,
     TexToken,
     convert_tex_to_mathml,
     create_symbol_from_node,
     filter_valid_formulas,
+    parse_symbols_in_formulas,
 )
 from lib.parse_mathml import NodeType, parse_formula
 from lib.parse_tex import FormulaExtractor
@@ -57,9 +61,6 @@ class FloatRectangle:
     top: float
     width: float
     height: float
-
-
-Formula = str
 
 
 def extract_formulas(sources_dir: Path) -> Set[Formula]:
@@ -130,10 +131,7 @@ def extract_symbols(
     'debug_output_dir', if set, is a directory where the images visualizing the results of
     token and symbol extraction, overlaid over images of the pages, will be output.
     """
-    # TODO(andrewhead): Find out why symbols do not appear in algorithm listings.
     # TODO(andrewhead): Find out why some functions are not getting detected.
-    # TODO(andrewhead): 'd' and 'm' probably need to be shifted by vertical pixels slightly
-    # to be detected; for some reason they are not getting detected.
 
     # Compile the TeX project to get the output PDF from which symbols will be extracted.
     logger.debug("Started processing paper.")
@@ -300,7 +298,9 @@ def extract_symbols(
         )
         logger.debug("Finished rastering original PDF.")
         logger.debug("Started detecting token locations.")
-        token_locations = detect_tokens(original_page_images, token_images)
+        token_locations = detect_tokens(
+            original_page_images, token_images, require_blank_border=False
+        )
         logger.debug("Finished detecting token locations.")
         logger.debug("Started detecting symbol locations.")
         symbol_locations = detect_symbols(token_locations, symbol_templates)
@@ -439,6 +439,24 @@ async def detect_upload_file(sources: UploadFile = File(...)):
         unpack_archive(sources_filename, unpacked_dir)
         json_result = extract_symbols(unpacked_dir, texcompile_host, texcompile_port)
         return json_result
+
+
+class ParseFormulasRequest(BaseModel):
+    formulas: List[str]
+
+
+@app.post("/parse_formulas")
+async def parse_formulas(request: ParseFormulasRequest):
+
+    formulas = request.formulas
+    result = []
+    formula_symbols = parse_symbols_in_formulas(formulas)
+    for formula in formulas:
+        symbols = formula_symbols.get(formula, [])
+        symbol_jsons = [dataclasses.asdict(s) for s in symbols]
+        result.append(symbol_jsons)
+
+    return result
 
 
 if __name__ == "__main__":

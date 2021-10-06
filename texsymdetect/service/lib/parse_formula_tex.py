@@ -8,10 +8,11 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from typing_extensions import Literal
 
-from lib.parse_mathml import Node, NodeType, Token
+from lib.parse_mathml import Node, NodeType, parse_formula
 
 MathMl = str
 Path = str
+Formula = str
 
 
 @dataclass(frozen=True)
@@ -125,3 +126,74 @@ def create_symbol_from_node(node: Node, formula: str) -> TexSymbol:
         tokens=tex_tokens,
     )
     return symbol
+
+
+@dataclass
+class ExtendedTexSymbol:
+    """
+    A symbol extracted from a TeX formula, with additional information about
+    where that symbol came from within the formula.
+    """
+
+    id_: int
+    type_: NodeType
+    mathml: str
+    tex: str
+    start: int
+    end: int
+    parent: Optional[int]
+
+
+def parse_symbols_in_formulas(
+    formulas: List[str],
+) -> Dict[Formula, List[ExtendedTexSymbol]]:
+    """ Parses formulas into their symbols. """
+
+    # Convert formulas to MathML representation.
+    formula_mathmls = convert_tex_to_mathml(formulas)
+
+    # Extract all symbols and tokens for all formulas.
+    formula_symbols: Dict[Formula, List[ExtendedTexSymbol]] = {f: [] for f in formulas}
+
+    for (formula, mathml) in formula_mathmls.items():
+
+        symbol_ids: Dict[int, int] = {}
+        new_symbol_id = 0
+
+        def _get_id(node: Node) -> int:
+            " Maps from Python object ID for node to a simple, small numeric index. "
+            object_id = id(node)
+            nonlocal new_symbol_id
+            if object_id not in symbol_ids:
+                symbol_ids[object_id] = new_symbol_id
+                new_symbol_id += 1
+            return symbol_ids[object_id]
+
+        new_symbol_id = 0
+        parents: Dict[int, int] = {}
+
+        if mathml is not None:
+            nodes = parse_formula(
+                mathml, merge_adjacent_elements=False, insert_function_elements=False,
+            )
+            # Build a map between parent and child symbols.
+            for node in nodes:
+                for child in node.child_symbols:
+                    parents[_get_id(child)] = _get_id(node)
+
+            # Create a symbol for each node in the formula's parse tree.
+            for node in nodes:
+                tex_symbol = create_symbol_from_node(node, formula)
+                formula_symbols[formula].append(
+                    ExtendedTexSymbol(
+                        id_=_get_id(node),
+                        type_=node.type_,
+                        mathml=tex_symbol.mathml,
+                        tex=tex_symbol.tex,
+                        start=node.start,
+                        end=node.end,
+                        parent=parents.get(_get_id(node)),
+                    )
+                )
+
+    return formula_symbols
