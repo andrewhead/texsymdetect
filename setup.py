@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name="texsymdetect",
-    version="0.0.1",
+    version="0.0.3",
     packages=[
       "texsymdetect.client",
     ],
