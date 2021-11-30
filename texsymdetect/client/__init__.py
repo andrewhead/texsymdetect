@@ -138,7 +138,7 @@ def parse_formulas(
         parents: Dict[SymbolId, SymbolId] = {}
         for item in symbol_data:
             symbol = TexSymbol(
-                id_=item["id"],
+                id_=item["id_"],
                 type_=item["type"],
                 mathml=item["mathml"],
                 tex=item["tex"],
