@@ -139,7 +139,7 @@ def parse_formulas(
         for item in symbol_data:
             symbol = TexSymbol(
                 id_=item["id_"],
-                type_=item["type"],
+                type_=item["type_"],
                 mathml=item["mathml"],
                 tex=item["tex"],
                 start=item["start"],
