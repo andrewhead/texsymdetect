@@ -75,6 +75,19 @@ The output will look like this:
 
 Each symbol can have one parent---i.e., another symbol that contains it. For instance, in the TeX symbol `x_i`, both `x` and `i` will have the parent symbol `x_i`.
 
+## Advanced usage
+
+By default, the service attempts to connect to a `texcompile` service hosted on 
+port 8000 of http://localhost. It can be pointed to another `texcompile` 
+endpoint by setting the `TEXCOMPILE_HOST` AND `TEXCOMPILE_PORT` environment 
+variables.
+
+The `detect_symbols` method in the client library can be passed additional 
+options. Documentation and defaults for those options appear in the source code.
+
+The client library also has a `parse_formulas` method, which requests for the 
+service to parse the MathML for a list of LaTeX formulas.
+
 ## License
 
 Apache 2.0.
