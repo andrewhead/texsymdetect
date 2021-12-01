@@ -57,9 +57,18 @@ class TexSymbol:
 
 
 def detect_symbols(
-    sources_dir: Path, host: str = "http://127.0.0.1", port: int = 8001,
+    sources_dir: Path,
+    host: str = "http://127.0.0.1",
+    port: int = 8001,
+    try_expand_macros: Optional[bool] = None,
+    require_blank_border: Optional[bool] = None,
+    insert_function_elements: Optional[bool] = None,
+    merge_adjacent_elements: Optional[bool] = None,
 ) -> List[Symbol]:
-    """ Detect positions of symbols in LaTeX paper. """
+    """
+    Detect positions of symbols in LaTeX paper. Documentation and defaults for options (e.g.,
+    'require_blank_border') appears in the server code for the 'extract_symbols' endpoint.
+    """
 
     with tempfile.TemporaryDirectory() as temp_dir:
         # Prepare a gzipped tarball file containing the sources.
@@ -74,7 +83,16 @@ def detect_symbols(
             # Make request to service.
             endpoint = f"{host}:{port}/"
             try:
-                response = requests.post(endpoint, files=files)
+                response = requests.post(
+                    endpoint,
+                    files=files,
+                    params={
+                        "try_expand_macros": try_expand_macros,
+                        "require_blank_border": require_blank_border,
+                        "insert_function_elements": insert_function_elements,
+                        "merge_adjacent_elements": merge_adjacent_elements,
+                    },
+                )
             except requests.exceptions.RequestException as e:
                 raise ServerConnectionException(
                     f"Request to server {endpoint} failed.", e

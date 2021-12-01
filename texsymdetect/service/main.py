@@ -1,3 +1,4 @@
+import argparse
 import dataclasses
 import logging
 import os
@@ -5,7 +6,6 @@ import os.path
 import shutil
 import tempfile
 from collections import defaultdict
-from configparser import ConfigParser
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
@@ -117,7 +117,10 @@ def extract_symbols(
     sources: Path,
     texcompile_host: str,
     texcompile_port: int,
-    try_expand_macros: bool = True,
+    try_expand_macros: Optional[bool] = None,
+    require_blank_border: Optional[bool] = None,
+    insert_function_elements: Optional[bool] = None,
+    merge_adjacent_elements: Optional[bool] = None,
     debug_output_dir: Optional[Path] = None,
 ) -> List[Any]:
     """
@@ -128,10 +131,33 @@ def extract_symbols(
     detecting those symbols. For papers that make heavy use of macros, this should increase
     the number of symbols that are detected.
 
+    If 'require_blank_border' is set, then the symbol detector will only detect tokens of
+    symbols that are surrounded with whitespace on all sides. This parameter decreases the
+    number of false positives (particularly for symbols like dots and dashes) and speeds
+    up symbol extraction. However, it does result in some missed symbols, particularly when
+    symbols are directly adjacent to each other, or when a symbol borders on a line (like
+    when a symbol is a numerator on top of a fraction line).
+
+    Options 'insert_function_elements' and 'merge_adjacent_elements' determine the extent
+    to which the MathML for detected LaTeX symbols is modified to reflect inferred semantics
+    of the MathML tree (for instance, whether consecutive elements in the MathML tree should be
+    combined). See documentation for the 'parse_element' method for details.
+
+    Defaults for options appear at the top of the function definition.
+
     'debug_output_dir', if set, is a directory where the images visualizing the results of
     token and symbol extraction, overlaid over images of the pages, will be output.
     """
-    # TODO(andrewhead): Find out why some functions are not getting detected.
+    try_expand_macros = True if try_expand_macros is None else try_expand_macros
+    require_blank_border = (
+        True if require_blank_border is None else require_blank_border
+    )
+    insert_function_elements = (
+        False if insert_function_elements is None else insert_function_elements
+    )
+    merge_adjacent_elements = (
+        False if merge_adjacent_elements is None else merge_adjacent_elements
+    )
 
     # Compile the TeX project to get the output PDF from which symbols will be extracted.
     logger.debug("Started processing paper.")
@@ -198,8 +224,8 @@ def extract_symbols(
             if mathml is not None:
                 nodes = parse_formula(
                     mathml,
-                    merge_adjacent_elements=False,
-                    insert_function_elements=False,
+                    merge_adjacent_elements=merge_adjacent_elements,
+                    insert_function_elements=insert_function_elements,
                 )
                 for node in nodes:
                     instance = create_symbol_from_node(node, formula)
@@ -299,7 +325,7 @@ def extract_symbols(
         logger.debug("Finished rastering original PDF.")
         logger.debug("Started detecting token locations.")
         token_locations = detect_tokens(
-            original_page_images, token_images, require_blank_border=False
+            original_page_images, token_images, require_blank_border
         )
         logger.debug("Finished detecting token locations.")
         logger.debug("Started detecting symbol locations.")
@@ -422,12 +448,20 @@ def extract_symbols(
 
 
 @app.post("/")
-async def detect_upload_file(sources: UploadFile = File(...)):
+async def detect_upload_file(
+    sources: UploadFile = File(...),
+    try_expand_macros: Optional[bool] = None,
+    require_blank_border: Optional[bool] = None,
+    insert_function_elements: Optional[bool] = None,
+    merge_adjacent_elements: Optional[bool] = None,
+):
+    " Documentation for options appears in the 'extract_symbols' method. "
 
-    config = ConfigParser()
-    config.read("config.ini")
-    texcompile_host = config["texcompile"]["host"]
-    texcompile_port = int(config["texcompile"]["port"])
+    texcompile_host = os.getenv("TEXCOMPILE_HOST", "http://localhost")
+    try:
+        texcompile_port = int(os.getenv("TEXCOMPILE_PORT"))  # type: ignore
+    except Exception:
+        texcompile_port = 8000
 
     with tempfile.TemporaryDirectory() as tempdir:
         sources_filename = os.path.join(tempdir, "sources")
@@ -437,7 +471,15 @@ async def detect_upload_file(sources: UploadFile = File(...)):
 
         unpacked_dir = os.path.join(tempdir, "unpacked_sources")
         unpack_archive(sources_filename, unpacked_dir)
-        json_result = extract_symbols(unpacked_dir, texcompile_host, texcompile_port)
+        json_result = extract_symbols(
+            unpacked_dir,
+            texcompile_host,
+            texcompile_port,
+            try_expand_macros=try_expand_macros,
+            require_blank_border=require_blank_border,
+            insert_function_elements=insert_function_elements,
+            merge_adjacent_elements=merge_adjacent_elements,
+        )
         return json_result
 
 
@@ -460,4 +502,9 @@ async def parse_formulas(request: ParseFormulasRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    parser = argparse.ArgumentParser(description="Run symbol detection service.")
+    parser.add_argument(
+        "--port", type=int, help="Port on which to run the service.", default=8001
+    )
+    args = parser.parse_args()
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
