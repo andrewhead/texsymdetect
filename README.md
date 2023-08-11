@@ -15,6 +15,15 @@ cd texsymdetect/service
 docker build -t symbol-detection-service .
 ```
 
+### If you are running with Mac with Apple Silicon
+
+PYPI does not have `aarch64` distributions for some of the needed dependencies, which means they will be built from scratch. This process can take a long time and could be buggy. An alternative approach is to use the `buildx` command from docker to create containers of a different architecture, and here is the command: 
+
+```bash
+docker buildx build --platform linux/x86_64 -t symbol-detection-service . --output=type=docker
+docker run --platform linux/x86_64 -p 8001:80 -it symbol-detection-service
+```
+
 ## Start the service
 
 ```bash
