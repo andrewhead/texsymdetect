@@ -47,6 +47,7 @@ RUN ./setup.sh
 # Install vim for when we inevitably want to inspect files
 RUN apt-get install -y vim
 
+RUN apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
 # Install pip requireements
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
